@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "linuxeasyconfig"
+version = "0.1.0"
+description = "Linux Easy Config, a modular graphical configuration framework for Ubuntu"
+requires-python = ">=3.14"
+dependencies = [
+    "PySide6",
+    "jsonschema",
+    "packaging",
+    "platformdirs",
+]
+
+[project.scripts]
+lec = "linuxeasyconfig.app:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["linuxeasyconfig*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
