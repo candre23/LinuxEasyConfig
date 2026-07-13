@@ -12,7 +12,7 @@ MANIFEST_SCHEMA = {
         "version",
         "description",
         "module_type",
-        "entry_page",
+        "entry_point",
     ],
     "properties": {
         "format_version": {
@@ -40,9 +40,10 @@ MANIFEST_SCHEMA = {
             "type": "string",
             "enum": ["declarative", "extended"],
         },
-        "entry_page": {
+        "entry_point": {
             "type": "string",
             "minLength": 1,
+            "pattern": r"^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$",
         },
     },
 }

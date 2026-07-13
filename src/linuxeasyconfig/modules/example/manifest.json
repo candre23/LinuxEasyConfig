@@ -5,5 +5,5 @@
   "version": "0.1.0",
   "description": "A simple module used to verify that LEC module discovery is working.",
   "module_type": "declarative",
-  "entry_page": "pages/main.json"
+  "entry_point": "module:ExampleModule"
 }
