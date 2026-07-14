@@ -19,7 +19,7 @@ class WritePreview:
 
 @dataclass(frozen=True)
 class WriteResult:
-    """Record of a completed configuration-file write."""
+    """Record of a completed configuration-file change."""
 
     revision: int
     timestamp: str
@@ -28,5 +28,5 @@ class WriteResult:
     destination: Path
     backup_path: Path | None
     previous_sha256: str | None
-    new_sha256: str
+    new_sha256: str | None
     bytes_written: int

@@ -65,7 +65,10 @@ class MainWindow(QMainWindow):
     def _populate_features(self) -> None:
         features = sorted(
             self._feature_registry.all(),
-            key=lambda feature: (feature.category.lower(), feature.title.lower()),
+            key=lambda feature: (
+                feature.category.lower(),
+                feature.title.lower(),
+            ),
         )
 
         current_category: str | None = None
@@ -74,7 +77,10 @@ class MainWindow(QMainWindow):
             if feature.category != current_category:
                 category_item = QListWidgetItem(feature.category)
                 category_item.setFlags(Qt.ItemFlag.NoItemFlags)
-                category_item.setData(Qt.ItemDataRole.UserRole, None)
+                category_item.setData(
+                    Qt.ItemDataRole.UserRole,
+                    None,
+                )
 
                 font = category_item.font()
                 font.setBold(True)
@@ -84,7 +90,10 @@ class MainWindow(QMainWindow):
                 current_category = feature.category
 
             item = QListWidgetItem(feature.title)
-            item.setData(Qt.ItemDataRole.UserRole, feature.id)
+            item.setData(
+                Qt.ItemDataRole.UserRole,
+                feature.id,
+            )
             item.setToolTip(feature.description)
 
             if feature.icon:
@@ -116,8 +125,10 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Feature Not Available",
-                f"LEC does not yet support feature target type "
-                f"{feature.target_type!r}.",
+                (
+                    "LEC does not yet support feature target type "
+                    f"{feature.target_type!r}."
+                ),
             )
             return
 
@@ -127,8 +138,10 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 "View Not Found",
-                f"The feature {feature.title!r} refers to a view that "
-                f"is not registered.",
+                (
+                    f"The feature {feature.title!r} refers to a view "
+                    "that is not registered."
+                ),
             )
             return
 
@@ -146,7 +159,9 @@ class MainWindow(QMainWindow):
             index = self._view_stack.addWidget(widget)
             self._view_indexes[view.id] = index
 
-        self._view_stack.setCurrentIndex(self._view_indexes[view.id])
+        self._view_stack.setCurrentIndex(
+            self._view_indexes[view.id]
+        )
 
 
 def main() -> int:
@@ -154,12 +169,22 @@ def main() -> int:
 
     feature_registry = FeatureRegistry()
     view_registry = ViewRegistry()
-    module_manager = ModuleManager(feature_registry, view_registry)
+    module_manager = ModuleManager(
+        feature_registry,
+        view_registry,
+    )
 
-    modules_directory = Path(__file__).resolve().parent / "modules"
-    result = module_manager.load_from_directory(modules_directory)
+    modules_directory = (
+        Path(__file__).resolve().parent / "modules"
+    )
+    result = module_manager.load_from_directory(
+        modules_directory
+    )
 
-    window = MainWindow(feature_registry, view_registry)
+    window = MainWindow(
+        feature_registry,
+        view_registry,
+    )
     window.show()
 
     if result.load_errors or result.registration_errors:

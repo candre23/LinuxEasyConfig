@@ -3,13 +3,18 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QHBoxLayout, QPushButton, QWidget
+from PySide6.QtWidgets import (
+    QGridLayout,
+    QPushButton,
+    QSizePolicy,
+    QWidget,
+)
 
 from linuxeasyconfig.core.table_actions import TableAction
 
 
 class ActionBar(QWidget):
-    """Reusable horizontal action-button bar."""
+    """Reusable action bar arranged in rows without affecting window width."""
 
     action_requested = Signal(str)
 
@@ -19,10 +24,16 @@ class ActionBar(QWidget):
         self._buttons: dict[str, QPushButton] = {}
         self._base_enabled: dict[str, bool] = {}
 
-        self._layout = QHBoxLayout(self)
+        self.setMinimumWidth(0)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Preferred,
+        )
+
+        self._layout = QGridLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
-        self._layout.setSpacing(8)
-        self._layout.addStretch()
+        self._layout.setHorizontalSpacing(8)
+        self._layout.setVerticalSpacing(6)
 
         self.hide()
 
@@ -31,9 +42,16 @@ class ActionBar(QWidget):
 
         self._clear_buttons()
 
-        for action in actions:
+        columns_per_row = 3
+
+        for index, action in enumerate(actions):
             button = QPushButton(action.label)
             button.setEnabled(action.enabled)
+            button.setMinimumWidth(0)
+            button.setSizePolicy(
+                QSizePolicy.Policy.Expanding,
+                QSizePolicy.Policy.Fixed,
+            )
             button.clicked.connect(
                 lambda checked=False, action_id=action.id: (
                     self.action_requested.emit(action_id)
@@ -43,24 +61,28 @@ class ActionBar(QWidget):
             self._buttons[action.id] = button
             self._base_enabled[action.id] = action.enabled
 
-            self._layout.insertWidget(
-                self._layout.count() - 1,
-                button,
-            )
+            row = index // columns_per_row
+            column = index % columns_per_row
+            self._layout.addWidget(button, row, column)
 
         self.setVisible(bool(actions))
 
-    def set_action_enabled(self, action_id: str, enabled: bool) -> None:
+    def set_action_enabled(
+        self,
+        action_id: str,
+        enabled: bool,
+    ) -> None:
         """Change the normal enabled state of one action."""
 
         self._base_enabled[action_id] = enabled
 
         button = self._buttons.get(action_id)
+
         if button is not None:
             button.setEnabled(enabled)
 
     def set_all_enabled(self, enabled: bool) -> None:
-        """Temporarily enable or disable all displayed actions."""
+        """Temporarily enable or disable every displayed action."""
 
         for action_id, button in self._buttons.items():
             button.setEnabled(
@@ -68,7 +90,7 @@ class ActionBar(QWidget):
             )
 
     def _clear_buttons(self) -> None:
-        while self._layout.count() > 1:
+        while self._layout.count():
             item = self._layout.takeAt(0)
             widget = item.widget()
 

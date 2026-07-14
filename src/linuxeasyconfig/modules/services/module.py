@@ -7,6 +7,7 @@ from linuxeasyconfig.core.module_api import (
 )
 
 from .provider import ServicesTableProvider
+from .views import ServicesView
 
 
 class ServicesModule(LECModule):
@@ -20,10 +21,18 @@ class ServicesModule(LECModule):
                 title="Background Services",
                 target_type="view",
                 target_id="services.main",
-                description="View and manage applications that run in the background.",
+                description=(
+                    "View, manage, and install applications that "
+                    "run in the background."
+                ),
                 category="System",
                 icon="applications-system",
-                keywords=("services", "startup", "background", "systemd"),
+                keywords=(
+                    "services",
+                    "startup",
+                    "background",
+                    "systemd",
+                ),
             )
         ]
 
@@ -32,15 +41,11 @@ class ServicesModule(LECModule):
             ViewDefinition(
                 id="services.main",
                 title="Background Services",
-                view_type="table",
+                view_type="custom",
                 data={
-                    "heading": "Background Services",
-                    "description": (
-                        "Services currently installed on this system."
+                    "factory": lambda: ServicesView(
+                        self._provider
                     ),
-                    "provider": self._provider,
-                    "selectable": True,
-                    "sortable": True,
                 },
             )
         ]

@@ -16,11 +16,11 @@ from linuxeasyconfig.core.config.write_models import (
 
 
 class ConfigurationWriteError(RuntimeError):
-    """Raised when a configuration write cannot be completed safely."""
+    """Raised when a configuration change cannot be completed safely."""
 
 
 class ConfigurationWriter:
-    """Preview, back up, atomically write, and audit configuration files."""
+    """Safely write, delete, back up, and audit configuration files."""
 
     def __init__(
         self,
@@ -120,7 +120,6 @@ class ConfigurationWriter:
 
             os.replace(temporary_path, destination)
             temporary_path = None
-
             self._fsync_directory(destination.parent)
 
         except Exception as exc:
@@ -138,17 +137,15 @@ class ConfigurationWriter:
                 f"Verification failed after writing {destination}."
             )
 
-        action = (
-            "updated"
-            if preview.destination_exists
-            else "created"
-        )
-
         result = WriteResult(
             revision=revision,
             timestamp=timestamp_text,
             module_id=module_id,
-            action=action,
+            action=(
+                "updated"
+                if preview.destination_exists
+                else "created"
+            ),
             destination=destination,
             backup_path=backup_path,
             previous_sha256=previous_sha256,
@@ -156,15 +153,86 @@ class ConfigurationWriter:
             bytes_written=len(rendered_bytes),
         )
 
+        self._append_audit_record(result)
+        return result
+
+    def delete(
+        self,
+        *,
+        module_id: str,
+        destination: Path,
+    ) -> WriteResult:
+        """
+        Delete a file only after creating and verifying a backup.
+        """
+
+        if destination.is_symlink():
+            raise ConfigurationWriteError(
+                f"Refusing to delete symbolic link: {destination}"
+            )
+
+        if not destination.is_file():
+            raise ConfigurationWriteError(
+                f"Cannot delete missing file: {destination}"
+            )
+
+        timestamp = datetime.now().astimezone()
+        timestamp_text = timestamp.isoformat(timespec="seconds")
+        revision = self._audit_log.next_revision(module_id)
+        previous_sha256 = self._sha256_file(destination)
+
+        backup_path = self._create_verified_backup(
+            module_id=module_id,
+            destination=destination,
+            revision=revision,
+        )
+
+        if not backup_path.is_file():
+            raise ConfigurationWriteError(
+                f"Verified backup is missing: {backup_path}"
+            )
+
+        if self._sha256_file(backup_path) != previous_sha256:
+            raise ConfigurationWriteError(
+                "Backup verification failed before deletion."
+            )
+
+        try:
+            destination.unlink()
+            self._fsync_directory(destination.parent)
+        except Exception as exc:
+            raise ConfigurationWriteError(
+                f"Could not delete {destination}: {exc}"
+            ) from exc
+
+        if destination.exists():
+            raise ConfigurationWriteError(
+                f"Deletion verification failed for {destination}."
+            )
+
+        result = WriteResult(
+            revision=revision,
+            timestamp=timestamp_text,
+            module_id=module_id,
+            action="deleted",
+            destination=destination,
+            backup_path=backup_path,
+            previous_sha256=previous_sha256,
+            new_sha256=None,
+            bytes_written=0,
+        )
+
+        self._append_audit_record(result)
+        return result
+
+    def _append_audit_record(self, result: WriteResult) -> None:
         try:
             self._audit_log.append(result)
         except Exception as exc:
             raise ConfigurationWriteError(
-                f"The file was written, but the audit record could not "
-                f"be saved: {exc}"
+                "The filesystem change completed, but the audit "
+                f"record could not be saved: {exc}"
             ) from exc
-
-        return result
 
     def _create_verified_backup(
         self,
@@ -173,6 +241,11 @@ class ConfigurationWriter:
         destination: Path,
         revision: int,
     ) -> Path:
+        if destination.is_symlink():
+            raise ConfigurationWriteError(
+                f"Refusing to back up symbolic link: {destination}"
+            )
+
         if not destination.is_file():
             raise ConfigurationWriteError(
                 f"Cannot back up missing file: {destination}"
@@ -180,7 +253,6 @@ class ConfigurationWriter:
 
         original_size = destination.stat().st_size
         original_sha256 = self._sha256_file(destination)
-
         relative_destination = self._safe_relative_path(destination)
 
         backup_path = (

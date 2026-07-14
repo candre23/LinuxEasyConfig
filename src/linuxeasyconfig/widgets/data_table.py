@@ -1,17 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
-from PySide6.QtCore import (
-    QItemSelectionModel,
-    QObject,
-    QRunnable,
-    Qt,
-    QThreadPool,
-    QTimer,
-    Signal,
-)
+from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -30,6 +22,9 @@ from PySide6.QtWidgets import (
 from linuxeasyconfig.core.table_actions import TableAction
 from linuxeasyconfig.core.table_provider import TableDataProvider
 from linuxeasyconfig.widgets.action_bar import ActionBar
+
+
+ActionHandler = Callable[[TableAction, dict[str, Any]], bool]
 
 
 class _RefreshSignals(QObject):
@@ -129,6 +124,7 @@ class DataTable(QWidget):
         *,
         selectable: bool = True,
         sortable: bool = True,
+        action_handler: ActionHandler | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -137,6 +133,7 @@ class DataTable(QWidget):
         self._columns = tuple(provider.columns())
         self._rows: list[dict[str, Any]] = []
         self._sortable = sortable
+        self._action_handler = action_handler
         self._refresh_in_progress = False
         self._action_in_progress = False
         self._closing = False
@@ -315,8 +312,6 @@ class DataTable(QWidget):
             return
 
         selected_id = self._selected_row_id()
-        vertical_scroll = self._table.verticalScrollBar().value()
-        horizontal_scroll = self._table.horizontalScrollBar().value()
         self._rows = rows
 
         sorting_enabled = self._table.isSortingEnabled()
@@ -369,8 +364,6 @@ class DataTable(QWidget):
         if selected_id:
             self._restore_selection(selected_id)
 
-        self._table.verticalScrollBar().setValue(vertical_scroll)
-        self._table.horizontalScrollBar().setValue(horizontal_scroll)
         self._update_actions_for_selection()
 
     def _refresh_failed(self, message: str) -> None:
@@ -416,6 +409,20 @@ class DataTable(QWidget):
 
         if action is None or row is None or not action.enabled:
             return
+
+        if self._action_handler is not None:
+            try:
+                handled = self._action_handler(action, row)
+            except Exception as exc:
+                QMessageBox.critical(
+                    self,
+                    "Action Failed",
+                    str(exc),
+                )
+                return
+
+            if handled:
+                return
 
         if action.confirmation_message:
             title = action.confirmation_title or "Confirm Action"
@@ -520,11 +527,6 @@ class DataTable(QWidget):
         return str(row_id) if row_id else None
 
     def _restore_selection(self, row_id: str) -> None:
-        selection_model = self._table.selectionModel()
-
-        if selection_model is None:
-            return
-
         for row_index in range(self._table.rowCount()):
             item = self._table.item(row_index, 0)
 
@@ -536,11 +538,5 @@ class DataTable(QWidget):
             )
 
             if str(item_row_id) == row_id:
-                index = self._table.model().index(row_index, 0)
-                selection_model.select(
-                    index,
-                    QItemSelectionModel.SelectionFlag.ClearAndSelect
-                    | QItemSelectionModel.SelectionFlag.Rows,
-                )
-                self._table.setCurrentIndex(index)
+                self._table.selectRow(row_index)
                 return
