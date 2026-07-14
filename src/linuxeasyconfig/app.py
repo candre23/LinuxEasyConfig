@@ -35,7 +35,7 @@ class MainWindow(QMainWindow):
         self._view_indexes: dict[str, int] = {}
 
         self.setWindowTitle("Linux Easy Config")
-        self.resize(1000, 650)
+        self.resize(1180, 760)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
 

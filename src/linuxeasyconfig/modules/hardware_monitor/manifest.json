@@ -1,0 +1,9 @@
+{
+  "format_version": 1,
+  "id": "org.linuxeasyconfig.hardware_monitor",
+  "name": "Hardware Monitor",
+  "version": "0.1.0",
+  "description": "View live CPU, memory, storage, network, and temperature information.",
+  "module_type": "extended",
+  "entry_point": "module:HardwareMonitorModule"
+}

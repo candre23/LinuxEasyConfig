@@ -302,7 +302,7 @@ class ServicesView(QWidget):
         self._selection_timer.start(250)
 
         layout.addWidget(heading)
-        layout.addWidget(description)
+        # layout.addWidget(description)
         layout.addWidget(table, 1)
         layout.addLayout(remove_row)
 
