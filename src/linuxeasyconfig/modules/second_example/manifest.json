@@ -1,9 +1,0 @@
-{
-  "format_version": 1,
-  "id": "org.linuxeasyconfig.second_example",
-  "name": "Second Example",
-  "version": "0.1.0",
-  "description": "A second test module used to verify navigation between module features.",
-  "module_type": "extended",
-  "entry_point": "module:SecondExampleModule"
-}

@@ -452,6 +452,44 @@ Installing a privileged extension is equivalent to installing system-level softw
 
 This mechanism should not be implemented until a real module demonstrates that it is necessary.
 
+### 7.4 Module Categories
+
+LEC uses two user-facing module categories.
+
+#### System Modules
+
+System modules manage operating-system functions and low-level background infrastructure.
+
+Examples include:
+
+- Background services
+- Running processes
+- Local and network mounts
+- Users and groups
+- File permissions
+- Networking
+- Firewall configuration
+- Caddy reverse-proxy configuration
+- Startup behavior
+- General operating-system settings
+
+A component may still be considered a System module even when it is not installed by default, provided it functions as low-level system infrastructure rather than as a standalone user application.
+
+#### Application Modules
+
+Application modules manage configuration gaps for standalone applications.
+
+Examples include:
+
+- Copyparty shared-directory configuration
+- Application config files
+- Application service installation
+- Filesystem permissions needed by an application
+- Settings that are unavailable through the application's existing GUI
+
+LEC should not replace a functional application GUI or web interface. Application modules should focus only on tasks that otherwise require terminal commands, protected-file editing, or knowledge of undocumented configuration syntax.
+
+
 ## 8. The `.lec` Package Format
 
 A `.lec` file will initially be a ZIP-compatible archive using the `.lec` extension.
@@ -1046,3 +1084,22 @@ When choosing between exposing Linux as it currently works and presenting the ta
 
 The underlying Linux mechanism should remain accurate, inspectable, and available through advanced tools, but it should not become an unnecessary barrier to completing the task.
 
+## Scope Boundary
+
+LEC exists to provide graphical controls where none currently exist.
+
+LEC should not recreate working graphical interfaces.
+
+When an application already provides a usable GUI or web interface for a setting, LEC should normally leave that setting to the existing interface.
+
+A LEC module may provide:
+
+- A shortcut or link to the existing interface
+- Explanatory text about where remaining settings are managed
+- Configuration support only for settings that are not exposed elsewhere
+
+The guiding question is:
+
+> Does this task currently require terminal commands, direct config-file editing, or low-level Linux knowledge?
+
+If not, it is probably outside LEC's scope.
