@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import grp
 from pathlib import Path
 from typing import Any
 
@@ -107,7 +108,7 @@ class MountsView(QWidget):
         )
         self._tabs.addTab(
             self._network_share,
-            "Add Network Share",
+            "Add/Modify Network Share",
         )
         self._tabs.addTab(
             self._local_folder,
@@ -753,6 +754,9 @@ class NetworkShareView(QWidget):
         )
 
         self._read_only = QCheckBox("Mount read-only")
+        self._read_only.toggled.connect(
+            self._update_smb_group_controls
+        )
         self._mount_now = QCheckBox(
             "Mount the share immediately after saving"
         )
@@ -818,6 +822,7 @@ class NetworkShareView(QWidget):
         layout.addStretch()
 
         self._connect_suggestion_signals()
+        self._refresh_smb_groups()
         self._protocol_changed()
 
     def _build_smb_form(self) -> QWidget:
@@ -842,12 +847,83 @@ class NetworkShareView(QWidget):
         )
         self._smb_domain = QLineEdit()
 
+        self._smb_credential_help = QLabel(
+            "When modifying an existing share, leave the username, "
+            "password, and domain fields blank to keep the saved "
+            "credentials. Enter new credentials only when you want "
+            "to replace them."
+        )
+        self._smb_credential_help.setWordWrap(True)
+        self._smb_credential_help.setMinimumHeight(48)
+        self._smb_credential_help.setTextFormat(
+            Qt.TextFormat.PlainText
+        )
+        self._smb_credential_help.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+
+        self._smb_local_group = QComboBox()
+        self._smb_local_group.currentIndexChanged.connect(
+            self._update_smb_group_controls
+        )
+
+        self._refresh_groups_button = QPushButton("Refresh Groups")
+        self._refresh_groups_button.clicked.connect(
+            self._refresh_smb_groups
+        )
+
+        group_row = QWidget()
+        group_row_layout = QHBoxLayout(group_row)
+        group_row_layout.setContentsMargins(0, 0, 0, 0)
+        group_row_layout.addWidget(self._smb_local_group, 1)
+        group_row_layout.addWidget(self._refresh_groups_button)
+
+        self._smb_group_access = QComboBox()
+        self._smb_group_access.addItem(
+            "Group members can read only",
+            "read",
+        )
+        self._smb_group_access.addItem(
+            "Group members can read and write",
+            "write",
+        )
+
+        self._smb_group_help = QLabel(
+            "Optional: restrict local access to members of one "
+            "Linux group. This does not change permissions on "
+            "the NAS itself."
+        )
+        self._smb_group_help.setWordWrap(True)
+        self._smb_group_help.setMinimumHeight(42)
+        self._smb_group_help.setTextFormat(
+            Qt.TextFormat.PlainText
+        )
+        self._smb_group_help.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+
+        self._smb_group_status = QLabel()
+        self._smb_group_status.setWordWrap(True)
+        self._smb_group_status.setMinimumHeight(34)
+        self._smb_group_status.setTextFormat(
+            Qt.TextFormat.PlainText
+        )
+        self._smb_group_status.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+
         form.addRow("Server:", self._smb_server)
         form.addRow("Share name:", self._smb_share)
         form.addRow("", self._smb_guest)
         form.addRow("Username:", self._smb_username)
         form.addRow("Password:", self._smb_password)
         form.addRow("Domain:", self._smb_domain)
+        form.addRow("", self._smb_credential_help)
+        form.addRow("Local access group:", group_row)
+        form.addRow("Group permissions:", self._smb_group_access)
+        form.addRow("", self._smb_group_status)
+        form.addRow("", self._smb_group_help)
+
         return container
 
     def _build_nfs_form(self) -> QWidget:
@@ -903,6 +979,39 @@ class NetworkShareView(QWidget):
             self._smb_guest.setChecked(
                 "guest" in options
             )
+
+            self._refresh_smb_groups()
+            group_name = _group_name_from_options(
+                options
+            )
+            group_index = (
+                self._smb_local_group.findData(
+                    group_name
+                )
+            )
+            if group_index >= 0:
+                self._smb_local_group.setCurrentIndex(
+                    group_index
+                )
+
+            file_mode = _option_value(
+                options,
+                "file_mode",
+            )
+            group_access = (
+                "write"
+                if file_mode in {"0660", "660"}
+                else "read"
+            )
+            access_index = (
+                self._smb_group_access.findData(
+                    group_access
+                )
+            )
+            if access_index >= 0:
+                self._smb_group_access.setCurrentIndex(
+                    access_index
+                )
         else:
             self._protocol.setCurrentIndex(1)
             server, export = _split_nfs_source(
@@ -987,6 +1096,7 @@ class NetworkShareView(QWidget):
             self._mountpoint_was_edited = False
             self._update_mountpoint_suggestion()
 
+        self._update_smb_group_controls()
         self._preview.clear()
 
     def _update_smb_credentials_enabled(
@@ -996,6 +1106,77 @@ class NetworkShareView(QWidget):
         self._smb_username.setEnabled(not guest)
         self._smb_password.setEnabled(not guest)
         self._smb_domain.setEnabled(not guest)
+
+    def _refresh_smb_groups(self) -> None:
+        selected = str(
+            self._smb_local_group.currentData() or ""
+        )
+
+        self._smb_local_group.blockSignals(True)
+        self._smb_local_group.clear()
+        self._smb_local_group.addItem(
+            "No local group restriction",
+            "",
+        )
+
+        for group in sorted(
+            grp.getgrall(),
+            key=lambda item: item.gr_name.casefold(),
+        ):
+            self._smb_local_group.addItem(
+                group.gr_name,
+                group.gr_name,
+            )
+
+        index = self._smb_local_group.findData(selected)
+        self._smb_local_group.setCurrentIndex(
+            index if index >= 0 else 0
+        )
+        self._smb_local_group.blockSignals(False)
+        self._update_smb_group_controls()
+
+    def _update_smb_group_controls(self) -> None:
+        group_selected = bool(
+            self._smb_local_group.currentData()
+        )
+        smb_selected = self._current_protocol() == "smb"
+        whole_mount_read_only = self._read_only.isChecked()
+
+        enabled = (
+            smb_selected
+            and group_selected
+            and not whole_mount_read_only
+        )
+        self._smb_group_access.setEnabled(enabled)
+        self._refresh_groups_button.setEnabled(smb_selected)
+
+        if not smb_selected:
+            self._smb_group_status.setText(
+                "Local group controls apply only to Windows/SMB shares."
+            )
+            return
+
+        if not group_selected:
+            self._smb_group_status.setText(
+                "Choose a local group to enable group permission choices."
+            )
+            return
+
+        if whole_mount_read_only:
+            index = self._smb_group_access.findData("read")
+            if index >= 0:
+                self._smb_group_access.setCurrentIndex(index)
+            self._smb_group_status.setText(
+                "The entire mount is set to read-only, so group members "
+                "can only be given read-only access. Uncheck ‘Mount "
+                "read-only’ to enable the read/write option."
+            )
+            return
+
+        self._smb_group_status.setText(
+            "Choose whether members of the selected group may only read "
+            "the share or may also create, change, and delete files."
+        )
 
     def _mark_mountpoint_edited(self) -> None:
         self._mountpoint_was_edited = True
@@ -1180,6 +1361,13 @@ class NetworkShareView(QWidget):
                 existing_credential_path=(
                     self._existing_credential_path
                 ),
+                local_group=str(
+                    self._smb_local_group.currentData()
+                    or ""
+                ),
+                group_access=str(
+                    self._smb_group_access.currentData()
+                ),
             )
 
         return build_nfs_preview(
@@ -1241,6 +1429,8 @@ class NetworkShareView(QWidget):
             field.clear()
 
         self._smb_guest.setChecked(False)
+        self._smb_local_group.setCurrentIndex(0)
+        self._smb_group_access.setCurrentIndex(0)
         self._nfs_version.setCurrentIndex(0)
         self._startup_mode.setCurrentIndex(0)
         self._read_only.setChecked(False)
@@ -1271,6 +1461,23 @@ def _split_smb_source(
         share = f"{share}/{prefix}"
 
     return server, share
+
+
+def _group_name_from_options(
+    options: tuple[str, ...],
+) -> str:
+    value = _option_value(options, "gid")
+
+    if not value:
+        return ""
+
+    try:
+        return grp.getgrgid(int(value)).gr_name
+    except (ValueError, KeyError):
+        try:
+            return grp.getgrnam(value).gr_name
+        except KeyError:
+            return ""
 
 
 def _split_nfs_source(source: str) -> tuple[str, str]:

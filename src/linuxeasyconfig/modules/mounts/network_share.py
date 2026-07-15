@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import grp
 import os
 import re
 import shutil
@@ -65,6 +66,8 @@ def build_smb_preview(
     read_only: bool,
     startup_mode: str,
     existing_credential_path: str = "",
+    local_group: str = "",
+    group_access: str = "read",
 ) -> NetworkSharePreview:
     server = _clean_host(server)
     share_name, subdirectory = _split_smb_share_path(share)
@@ -105,6 +108,40 @@ def build_smb_preview(
     if subdirectory:
         options.append(
             f"prefixpath={_escape_mount_option(subdirectory)}"
+        )
+
+    if local_group.strip():
+        try:
+            group = grp.getgrnam(
+                local_group.strip()
+            )
+        except KeyError as exc:
+            raise ValueError(
+                f"The local group {local_group.strip()} "
+                "does not exist."
+            ) from exc
+
+        access = group_access.strip().lower()
+
+        if read_only or access == "read":
+            file_mode = "0640"
+            directory_mode = "0750"
+        elif access == "write":
+            file_mode = "0660"
+            directory_mode = "0770"
+        else:
+            raise ValueError(
+                "The selected local group access policy "
+                "is invalid."
+            )
+
+        options.extend(
+            [
+                f"gid={group.gr_gid}",
+                "forcegid",
+                f"file_mode={file_mode}",
+                f"dir_mode={directory_mode}",
+            ]
         )
 
     options.extend(["iocharset=utf8", "vers=3.0"])
