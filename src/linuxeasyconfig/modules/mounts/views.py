@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import (
@@ -12,6 +13,7 @@ from PySide6.QtCore import (
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -31,6 +33,11 @@ from linuxeasyconfig.core.privileged.task import PrivilegedTask
 from linuxeasyconfig.core.table_actions import TableAction
 from linuxeasyconfig.widgets.data_table import DataTable
 
+from .local_folder import (
+    LocalFolderPreview,
+    build_local_folder_preview,
+    suggested_mountpoint as suggested_local_mountpoint,
+)
 from .network_share import (
     NetworkSharePreview,
     build_nfs_preview,
@@ -86,7 +93,12 @@ class MountsView(QWidget):
 
         self._network_share = NetworkShareView()
         self._network_share.share_saved.connect(
-            self._on_share_saved
+            self._on_mount_saved
+        )
+
+        self._local_folder = LocalFolderMountView()
+        self._local_folder.mount_saved.connect(
+            self._on_mount_saved
         )
 
         self._tabs.addTab(
@@ -96,6 +108,10 @@ class MountsView(QWidget):
         self._tabs.addTab(
             self._network_share,
             "Add Network Share",
+        )
+        self._tabs.addTab(
+            self._local_folder,
+            "Add Local Folder Mount",
         )
 
         heading = QLabel("Mount Management")
@@ -158,8 +174,13 @@ class MountsView(QWidget):
                 )
                 return True
 
-            self._network_share.load_existing(row)
-            self._tabs.setCurrentIndex(1)
+            if bool(row.get("bind_mount", False)):
+                self._local_folder.load_existing(row)
+                self._tabs.setCurrentIndex(2)
+            else:
+                self._network_share.load_existing(row)
+                self._tabs.setCurrentIndex(1)
+
             return True
 
         if action.id == "mount":
@@ -189,7 +210,7 @@ class MountsView(QWidget):
 
         if action.id == "remove":
             self._run_row_task(
-                "mounts.remove_network_share",
+                "mounts.remove_entry",
                 {
                     "source": row["source"],
                     "mountpoint": row["mountpoint"],
@@ -201,7 +222,7 @@ class MountsView(QWidget):
                         row.get("mounted", False)
                     ),
                 },
-                "Remove Network Share",
+                "Remove Persistent Mount",
                 (
                     f"Remove {row['source']} from /etc/fstab?\n\n"
                     "LEC will create a verified backup first. "
@@ -268,9 +289,382 @@ class MountsView(QWidget):
         self._active_worker = None
         self._mounted_table.reload()
 
-    def _on_share_saved(self) -> None:
+    def _on_mount_saved(self) -> None:
         self._tabs.setCurrentIndex(0)
         self._mounted_table.reload()
+
+
+class LocalFolderMountView(QWidget):
+    """Create or modify a persistent bind mount."""
+
+    mount_saved = Signal()
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+
+        self._editing = False
+        self._original_source = ""
+        self._original_mountpoint = ""
+        self._mountpoint_was_edited = False
+        self._save_in_progress = False
+        self._active_worker: _TaskWorker | None = None
+        self._thread_pool = QThreadPool(self)
+        self._thread_pool.setMaxThreadCount(1)
+
+        self._heading = QLabel("Add a Local Folder Mount")
+        self._heading.setStyleSheet(
+            "font-size: 18px; font-weight: bold;"
+        )
+
+        explanation = QLabel(
+            "Make an existing local folder appear at another path. "
+            "Linux calls this a bind mount."
+        )
+        explanation.setWordWrap(True)
+
+        self._source = QLineEdit()
+        self._source.setPlaceholderText(
+            "/home/user/folder"
+        )
+        self._source.textChanged.connect(
+            self._update_mountpoint_suggestion
+        )
+
+        browse_source = QPushButton("Browse…")
+        browse_source.clicked.connect(
+            self._browse_source
+        )
+
+        source_row = QWidget()
+        source_layout = QHBoxLayout(source_row)
+        source_layout.setContentsMargins(0, 0, 0, 0)
+        source_layout.addWidget(self._source, 1)
+        source_layout.addWidget(browse_source)
+
+        self._mountpoint = QLineEdit()
+        self._mountpoint.setPlaceholderText(
+            "/mnt/folder"
+        )
+        self._mountpoint.textEdited.connect(
+            self._mark_mountpoint_edited
+        )
+
+        browse_mountpoint = QPushButton("Browse…")
+        browse_mountpoint.clicked.connect(
+            self._browse_mountpoint
+        )
+
+        mountpoint_row = QWidget()
+        mountpoint_layout = QHBoxLayout(mountpoint_row)
+        mountpoint_layout.setContentsMargins(0, 0, 0, 0)
+        mountpoint_layout.addWidget(
+            self._mountpoint,
+            1,
+        )
+        mountpoint_layout.addWidget(
+            browse_mountpoint
+        )
+
+        self._startup_mode = QComboBox()
+        self._startup_mode.addItem(
+            "Mount during startup",
+            "startup",
+        )
+        self._startup_mode.addItem(
+            "Mount when first accessed",
+            "on-demand",
+        )
+        self._startup_mode.addItem(
+            "Manual only",
+            "manual",
+        )
+
+        self._read_only = QCheckBox(
+            "Mount read-only"
+        )
+
+        self._mount_now = QCheckBox(
+            "Mount the folder immediately after saving"
+        )
+        self._mount_now.setChecked(True)
+
+        form = QFormLayout()
+        form.addRow("Source folder:", source_row)
+        form.addRow("Mount point:", mountpoint_row)
+        form.addRow(
+            "Startup behavior:",
+            self._startup_mode,
+        )
+        form.addRow("", self._read_only)
+        form.addRow("", self._mount_now)
+
+        self._preview = QPlainTextEdit()
+        self._preview.setReadOnly(True)
+        self._preview.setMinimumHeight(120)
+        self._preview.setPlaceholderText(
+            "Select Preview Configuration to generate the entry."
+        )
+
+        preview_button = QPushButton(
+            "Preview Configuration"
+        )
+        preview_button.clicked.connect(
+            self._preview_configuration
+        )
+
+        self._save_button = QPushButton(
+            "Save Local Folder Mount"
+        )
+        self._save_button.clicked.connect(
+            self._save_configuration
+        )
+
+        clear_button = QPushButton("Clear")
+        clear_button.clicked.connect(
+            self._clear_form
+        )
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        buttons.addWidget(clear_button)
+        buttons.addWidget(preview_button)
+        buttons.addWidget(self._save_button)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 12, 0, 0)
+        layout.setSpacing(12)
+        layout.addWidget(self._heading)
+        layout.addWidget(explanation)
+        layout.addLayout(form)
+        layout.addWidget(
+            QLabel("Configuration preview:")
+        )
+        layout.addWidget(self._preview)
+        layout.addLayout(buttons)
+        layout.addStretch()
+
+    def load_existing(
+        self,
+        row: dict[str, Any],
+    ) -> None:
+        self._clear_form()
+        self._editing = True
+        self._original_source = str(row["source"])
+        self._original_mountpoint = str(
+            row["mountpoint"]
+        )
+        self._source.setText(
+            self._original_source
+        )
+        self._mountpoint_was_edited = True
+        self._mountpoint.setText(
+            self._original_mountpoint
+        )
+
+        options = tuple(row.get("option_list", ()))
+
+        if "noauto" in options:
+            mode = "manual"
+        elif "x-systemd.automount" in options:
+            mode = "on-demand"
+        else:
+            mode = "startup"
+
+        index = self._startup_mode.findData(mode)
+        if index >= 0:
+            self._startup_mode.setCurrentIndex(index)
+
+        self._read_only.setChecked(
+            "ro" in options
+        )
+        self._mount_now.setChecked(False)
+        self._heading.setText(
+            "Modify Local Folder Mount"
+        )
+        self._save_button.setText(
+            "Save Changes"
+        )
+
+    def _browse_source(self) -> None:
+        path = QFileDialog.getExistingDirectory(
+            self,
+            "Select Source Folder",
+            self._source.text().strip()
+            or str(Path.home()),
+        )
+        if path:
+            self._source.setText(path)
+
+    def _browse_mountpoint(self) -> None:
+        path = QFileDialog.getExistingDirectory(
+            self,
+            "Select Existing Mount Point",
+            self._mountpoint.text().strip()
+            or "/mnt",
+        )
+        if path:
+            self._mountpoint_was_edited = True
+            self._mountpoint.setText(path)
+
+    def _mark_mountpoint_edited(self) -> None:
+        self._mountpoint_was_edited = True
+
+    def _update_mountpoint_suggestion(self) -> None:
+        if self._mountpoint_was_edited:
+            return
+
+        source = self._source.text().strip()
+
+        if not source:
+            self._mountpoint.clear()
+            return
+
+        self._mountpoint.setText(
+            suggested_local_mountpoint(source)
+        )
+
+    def _preview_configuration(self) -> None:
+        try:
+            preview = self._build_preview()
+        except ValueError as exc:
+            QMessageBox.warning(
+                self,
+                "Configuration Is Incomplete",
+                str(exc),
+            )
+            return
+
+        self._preview.setPlainText(
+            "# Entry to be written to /etc/fstab\n"
+            f"{preview.fstab_line}\n"
+        )
+
+    def _save_configuration(self) -> None:
+        if self._save_in_progress:
+            return
+
+        try:
+            preview = self._build_preview()
+        except ValueError as exc:
+            QMessageBox.warning(
+                self,
+                "Configuration Is Incomplete",
+                str(exc),
+            )
+            return
+
+        task_id = (
+            "mounts.update_local_folder"
+            if self._editing
+            else "mounts.install_local_folder"
+        )
+
+        arguments: dict[str, Any] = {
+            "source": preview.source,
+            "mountpoint": preview.mountpoint,
+            "fstab_line": preview.fstab_line,
+            "mount_now": self._mount_now.isChecked(),
+        }
+
+        if self._editing:
+            arguments.update(
+                {
+                    "original_source": self._original_source,
+                    "original_mountpoint": (
+                        self._original_mountpoint
+                    ),
+                }
+            )
+
+        response = QMessageBox.question(
+            self,
+            "Save Local Folder Mount",
+            (
+                f"Make {preview.source} available at "
+                f"{preview.mountpoint}?\n\n"
+                "LEC will create a verified backup before "
+                "changing /etc/fstab."
+            ),
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if response != QMessageBox.StandardButton.Yes:
+            return
+
+        self._save_in_progress = True
+        self._save_button.setEnabled(False)
+
+        worker = _TaskWorker(
+            PrivilegedTask(
+                task_id=task_id,
+                arguments=arguments,
+            )
+        )
+        worker.signals.succeeded.connect(
+            self._save_succeeded
+        )
+        worker.signals.failed.connect(
+            self._save_failed
+        )
+        worker.signals.finished.connect(
+            self._save_finished
+        )
+        self._active_worker = worker
+        self._thread_pool.start(worker)
+
+    def _save_succeeded(self, message: str) -> None:
+        QMessageBox.information(
+            self,
+            "Local Folder Mount Saved",
+            message,
+        )
+        self._clear_form()
+        self.mount_saved.emit()
+
+    def _save_failed(self, message: str) -> None:
+        QMessageBox.critical(
+            self,
+            "Local Folder Mount Could Not Be Saved",
+            message,
+        )
+
+    def _save_finished(self) -> None:
+        self._active_worker = None
+        self._save_in_progress = False
+        self._save_button.setEnabled(True)
+
+    def _build_preview(self) -> LocalFolderPreview:
+        return build_local_folder_preview(
+            source=self._source.text(),
+            mountpoint=self._mountpoint.text(),
+            read_only=self._read_only.isChecked(),
+            startup_mode=str(
+                self._startup_mode.currentData()
+            ),
+        )
+
+    def _clear_form(self) -> None:
+        self._editing = False
+        self._original_source = ""
+        self._original_mountpoint = ""
+        self._source.clear()
+        self._mountpoint_was_edited = False
+        self._mountpoint.clear()
+        self._startup_mode.setCurrentIndex(0)
+        self._read_only.setChecked(False)
+        self._mount_now.setChecked(True)
+        self._preview.clear()
+        self._heading.setText(
+            "Add a Local Folder Mount"
+        )
+        self._save_button.setText(
+            "Save Local Folder Mount"
+        )
 
 
 class NetworkShareView(QWidget):

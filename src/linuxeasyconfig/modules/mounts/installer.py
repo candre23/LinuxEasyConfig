@@ -81,6 +81,153 @@ def update_network_share(
     )
 
 
+def install_local_folder_mount(
+    *,
+    source: str,
+    mountpoint: str,
+    fstab_line: str,
+    mount_now: bool,
+) -> str:
+    return _save_local_folder_mount(
+        source=source,
+        mountpoint=mountpoint,
+        fstab_line=fstab_line,
+        mount_now=mount_now,
+        original_source="",
+        original_mountpoint="",
+    )
+
+
+def update_local_folder_mount(
+    *,
+    source: str,
+    mountpoint: str,
+    fstab_line: str,
+    mount_now: bool,
+    original_source: str,
+    original_mountpoint: str,
+) -> str:
+    return _save_local_folder_mount(
+        source=source,
+        mountpoint=mountpoint,
+        fstab_line=fstab_line,
+        mount_now=mount_now,
+        original_source=original_source,
+        original_mountpoint=original_mountpoint,
+    )
+
+
+def _save_local_folder_mount(
+    *,
+    source: str,
+    mountpoint: str,
+    fstab_line: str,
+    mount_now: bool,
+    original_source: str,
+    original_mountpoint: str,
+) -> str:
+    source_path = Path(source)
+
+    if not source_path.is_absolute() or not source_path.is_dir():
+        raise ValueError(
+            "The source folder must be an existing absolute directory."
+        )
+
+    mountpoint_path = _validate_mountpoint(mountpoint)
+    _validate_fstab_line(fstab_line)
+
+    fields = fstab_line.split()
+
+    if (
+        len(fields) < 6
+        or fields[2] != "none"
+        or "bind" not in fields[3].split(",")
+    ):
+        raise ValueError(
+            "The generated bind-mount entry is invalid."
+        )
+
+    current = FSTAB_PATH.read_text(
+        encoding="utf-8",
+        errors="replace",
+    )
+    editing = bool(
+        original_source and original_mountpoint
+    )
+
+    if editing:
+        new_fstab = _replace_lec_entry(
+            current,
+            original_source=original_source,
+            original_mountpoint=original_mountpoint,
+            protocol="LOCAL FOLDER",
+            source=source,
+            fstab_line=fstab_line,
+        )
+    else:
+        _ensure_not_duplicate(
+            current_fstab=current,
+            source=source,
+            mountpoint=mountpoint,
+        )
+        new_fstab = _append_entry(
+            current,
+            protocol="LOCAL FOLDER",
+            source=source,
+            fstab_line=fstab_line,
+        )
+
+    mountpoint_existed = mountpoint_path.exists()
+
+    if mountpoint_existed and not mountpoint_path.is_dir():
+        raise ValueError(
+            "The selected mount point exists but is not a directory."
+        )
+
+    if not mountpoint_existed:
+        mountpoint_path.mkdir(
+            parents=True,
+            exist_ok=False,
+        )
+
+    try:
+        _verify_fstab(new_fstab)
+    except Exception:
+        if not mountpoint_existed:
+            try:
+                mountpoint_path.rmdir()
+            except OSError:
+                pass
+        raise
+
+    result = _writer().write(
+        module_id=MODULE_ID,
+        destination=FSTAB_PATH,
+        document=RenderedConfiguration(new_fstab),
+    )
+
+    _run(
+        ["systemctl", "daemon-reload"],
+        timeout=30,
+    )
+
+    if editing and mount_now:
+        _run(
+            ["umount", original_mountpoint],
+            timeout=60,
+            allow_failure=True,
+        )
+
+    if mount_now:
+        _run(["mount", mountpoint], timeout=60)
+
+    verb = "Updated" if editing else "Saved"
+    return (
+        f"{verb} local folder mount {source} at "
+        f"{mountpoint}; fstab revision {result.revision}."
+    )
+
+
 def mount_entry(*, mountpoint: str) -> str:
     path = _validate_mountpoint(mountpoint)
     _run(["mount", str(path)], timeout=60)
@@ -93,7 +240,7 @@ def unmount_entry(*, mountpoint: str) -> str:
     return f"Unmounted {path}."
 
 
-def remove_network_share(
+def remove_mount_entry(
     *,
     source: str,
     mountpoint: str,
@@ -352,12 +499,14 @@ def _find_lec_entry_index(
         if len(fields) < 2:
             continue
 
-        if fields[0] == source and fields[1] == mountpoint:
+        if fields[1] == mountpoint:
             preceding = lines[max(0, index - 3):index]
+
             if "# Created by Linux Easy Config" not in preceding:
                 raise ValueError(
                     "LEC will only modify or remove entries it created."
                 )
+
             return index
 
     raise ValueError(

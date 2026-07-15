@@ -139,7 +139,11 @@ class MountsTableProvider(TableDataProvider):
         mounted = bool(row.get("mounted", False))
         persistent = bool(row.get("persistent_bool", False))
         network = row.get("kind") == "Network"
+        bind_mount = bool(row.get("bind_mount", False))
         lec_managed = bool(row.get("lec_managed", False))
+        editable = persistent and lec_managed and (
+            network or bind_mount
+        )
 
         return (
             TableAction(
@@ -155,12 +159,12 @@ class MountsTableProvider(TableDataProvider):
             TableAction(
                 id="modify",
                 label="Modify",
-                enabled=network and persistent and lec_managed,
+                enabled=editable,
             ),
             TableAction(
                 id="remove",
                 label="Remove",
-                enabled=network and persistent and lec_managed,
+                enabled=editable,
             ),
         )
 
@@ -173,9 +177,38 @@ def _build_active_row(
     options: tuple[str, ...],
     persistent: dict[str, Any] | None,
 ) -> dict[str, Any]:
+    persistent_source = (
+        str(persistent.get("source", source))
+        if persistent
+        else source
+    )
+    persistent_filesystem = (
+        str(persistent.get("filesystem", filesystem))
+        if persistent
+        else filesystem
+    )
+    bind_mount = bool(
+        persistent
+        and persistent.get("bind_mount", False)
+    )
+
+    display_source = (
+        persistent_source
+        if bind_mount
+        else source
+    )
+    display_filesystem = (
+        persistent_filesystem
+        if bind_mount
+        else filesystem
+    )
+
     kind = (
         "Network"
-        if _is_network_mount(source, filesystem)
+        if _is_network_mount(
+            display_source,
+            display_filesystem,
+        )
         else "Local"
     )
 
@@ -214,10 +247,10 @@ def _build_active_row(
     persistent_bool = persistent is not None
 
     return {
-        "_id": f"{source}\0{mountpoint}",
+        "_id": f"{display_source}\0{mountpoint}",
         "mountpoint": mountpoint,
-        "source": source,
-        "filesystem": filesystem,
+        "source": display_source,
+        "filesystem": display_filesystem,
         "kind": kind,
         "status": "Mounted",
         "status_sort": 1,
@@ -246,6 +279,7 @@ def _build_active_row(
             if persistent
             else ""
         ),
+        "bind_mount": bind_mount,
         "total_bytes": total_bytes,
         "used_bytes": used_bytes,
         "free_bytes": free_bytes,
@@ -281,6 +315,7 @@ def _build_inactive_row(
         "mounted": False,
         "lec_managed": bool(entry.get("lec_managed", False)),
         "credential_path": str(entry.get("credential_path", "")),
+        "bind_mount": bool(entry.get("bind_mount", False)),
         "total_bytes": None,
         "used_bytes": None,
         "free_bytes": None,
@@ -383,6 +418,10 @@ def _read_fstab_entries() -> list[dict[str, Any]]:
                 "options": options,
                 "lec_managed": lec_marker,
                 "credential_path": credential_path,
+                "bind_mount": (
+                    "bind" in options
+                    or "rbind" in options
+                ),
             }
         )
         lec_marker = False

@@ -9,10 +9,12 @@ from linuxeasyconfig.core.privileged.arguments import (
 )
 
 from .installer import (
+    install_local_folder_mount,
     install_network_share,
     mount_entry,
-    remove_network_share,
+    remove_mount_entry,
     unmount_entry,
+    update_local_folder_mount,
     update_network_share,
 )
 
@@ -107,6 +109,62 @@ def _update_network_share(
     )
 
 
+def _install_local_folder(
+    arguments: dict[str, Any],
+) -> str:
+    return install_local_folder_mount(
+        source=required_string(
+            arguments,
+            "source",
+        ),
+        mountpoint=required_string(
+            arguments,
+            "mountpoint",
+        ),
+        fstab_line=required_string(
+            arguments,
+            "fstab_line",
+        ),
+        mount_now=optional_bool(
+            arguments,
+            "mount_now",
+            default=True,
+        ),
+    )
+
+
+def _update_local_folder(
+    arguments: dict[str, Any],
+) -> str:
+    return update_local_folder_mount(
+        source=required_string(
+            arguments,
+            "source",
+        ),
+        mountpoint=required_string(
+            arguments,
+            "mountpoint",
+        ),
+        fstab_line=required_string(
+            arguments,
+            "fstab_line",
+        ),
+        mount_now=optional_bool(
+            arguments,
+            "mount_now",
+            default=True,
+        ),
+        original_source=required_string(
+            arguments,
+            "original_source",
+        ),
+        original_mountpoint=required_string(
+            arguments,
+            "original_mountpoint",
+        ),
+    )
+
+
 def _mount(
     arguments: dict[str, Any],
 ) -> str:
@@ -129,10 +187,10 @@ def _unmount(
     )
 
 
-def _remove_network_share(
+def _remove_entry(
     arguments: dict[str, Any],
 ) -> str:
-    return remove_network_share(
+    return remove_mount_entry(
         source=required_string(
             arguments,
             "source",
@@ -157,12 +215,16 @@ PRIVILEGED_TASKS = {
     "mounts.install_network_share": (
         _install_network_share
     ),
+    "mounts.install_local_folder": (
+        _install_local_folder
+    ),
+    "mounts.update_local_folder": (
+        _update_local_folder
+    ),
     "mounts.update_network_share": (
         _update_network_share
     ),
     "mounts.mount": _mount,
     "mounts.unmount": _unmount,
-    "mounts.remove_network_share": (
-        _remove_network_share
-    ),
+    "mounts.remove_entry": _remove_entry,
 }
