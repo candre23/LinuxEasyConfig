@@ -6,8 +6,14 @@ from linuxeasyconfig.core.module_api import (
     ViewDefinition,
 )
 
+from .provider import MountsTableProvider
+from .views import MountsView
+
 
 class MountsModule(LECModule):
+    def __init__(self) -> None:
+        self._provider = MountsTableProvider()
+
     def feature_definitions(self) -> list[FeatureDefinition]:
         return [
             FeatureDefinition(
@@ -18,7 +24,16 @@ class MountsModule(LECModule):
                 description="Connect and manage local and network storage.",
                 category="System",
                 icon="drive-harddisk",
-                keywords=("mount", "drive", "storage", "network share"),
+                keywords=(
+                    "mount",
+                    "drive",
+                    "storage",
+                    "network share",
+                    "SMB",
+                    "CIFS",
+                    "NFS",
+                    "NAS",
+                ),
             )
         ]
 
@@ -27,12 +42,9 @@ class MountsModule(LECModule):
             ViewDefinition(
                 id="mounts.main",
                 title="Mount Management",
-                view_type="message",
+                view_type="custom",
                 data={
-                    "heading": "Mount Management",
-                    "message": (
-                        "Local and network mount management will be implemented here."
-                    ),
+                    "factory": lambda: MountsView(self._provider),
                 },
             )
         ]

@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 from linuxeasyconfig.core.config.systemd_unit import SystemdUnit
 from linuxeasyconfig.core.privileged.runner import PrivilegedRunner
 from linuxeasyconfig.core.privileged.task import PrivilegedTask
+from linuxeasyconfig.core.table_actions import TableAction
 from linuxeasyconfig.widgets.data_table import DataTable
 
 from .provider import ServicesTableProvider
@@ -283,53 +284,34 @@ class ServicesView(QWidget):
             provider=provider,
             selectable=True,
             sortable=True,
+            action_handler=self._handle_table_action,
         )
-
-        self._remove_button = QPushButton("Remove Selected Service")
-        self._remove_button.setEnabled(False)
-        self._remove_button.clicked.connect(
-            self._begin_remove_selected_service
-        )
-
-        remove_row = QHBoxLayout()
-        remove_row.addStretch()
-        remove_row.addWidget(self._remove_button)
-
-        self._selection_timer = QTimer(self)
-        self._selection_timer.timeout.connect(
-            self._update_remove_button
-        )
-        self._selection_timer.start(250)
 
         layout.addWidget(heading)
         # layout.addWidget(description)
         layout.addWidget(table, 1)
-        layout.addLayout(remove_row)
 
         return container, table
 
-    def _update_remove_button(self) -> None:
-        row = self._services_table.selected_row_data()
-        removable = bool(row and row.get("removable", False))
-        self._remove_button.setEnabled(
-            removable and not self._remove_in_progress
-        )
+    def _handle_table_action(
+        self,
+        action: TableAction,
+        row: dict[str, Any],
+    ) -> bool:
+        if action.id != "remove":
+            return False
 
-        if row and not removable:
-            self._remove_button.setToolTip(
-                "Only regular service files stored directly under "
-                "/etc/systemd/system can be removed here."
-            )
-        else:
-            self._remove_button.setToolTip("")
+        self._begin_remove_selected_service(row)
+        return True
 
-    def _begin_remove_selected_service(self) -> None:
+    def _begin_remove_selected_service(
+        self,
+        row: dict[str, Any],
+    ) -> None:
         if self._remove_in_progress:
             return
 
-        row = self._services_table.selected_row_data()
-
-        if not row or not row.get("removable", False):
+        if not row.get("removable", False):
             return
 
         warning = QMessageBox.warning(
@@ -366,7 +348,6 @@ class ServicesView(QWidget):
             return
 
         self._remove_in_progress = True
-        self._remove_button.setEnabled(False)
 
         worker = _RemoveWorker(
             service_name=service_name,
@@ -405,7 +386,6 @@ class ServicesView(QWidget):
         self._remove_in_progress = False
         self._active_remove_worker = None
         self._services_table.reload()
-        self._update_remove_button()
 
     def _on_service_installed(self) -> None:
         self._tabs.setCurrentIndex(0)

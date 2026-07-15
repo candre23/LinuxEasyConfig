@@ -1,0 +1,897 @@
+from __future__ import annotations
+
+from typing import Any
+
+from PySide6.QtCore import (
+    QObject,
+    QRunnable,
+    Qt,
+    QThreadPool,
+    Signal,
+)
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QStackedWidget,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
+
+from linuxeasyconfig.core.privileged.runner import PrivilegedRunner
+from linuxeasyconfig.core.privileged.task import PrivilegedTask
+from linuxeasyconfig.core.table_actions import TableAction
+from linuxeasyconfig.widgets.data_table import DataTable
+
+from .network_share import (
+    NetworkSharePreview,
+    build_nfs_preview,
+    build_smb_preview,
+    dependency_status,
+    suggested_mountpoint,
+)
+from .provider import MountsTableProvider
+
+
+class _TaskSignals(QObject):
+    succeeded = Signal(str)
+    failed = Signal(str)
+    finished = Signal()
+
+
+class _TaskWorker(QRunnable):
+    def __init__(self, task: PrivilegedTask) -> None:
+        super().__init__()
+        self._task = task
+        self.signals = _TaskSignals()
+
+    def run(self) -> None:
+        try:
+            message = PrivilegedRunner().run(self._task)
+            self.signals.succeeded.emit(message)
+        except Exception as exc:
+            self.signals.failed.emit(str(exc))
+        finally:
+            self.signals.finished.emit()
+
+
+class MountsView(QWidget):
+    """Landing view for mounted and configurable storage."""
+
+    def __init__(
+        self,
+        provider: MountsTableProvider,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+
+        self._provider = provider
+        self._active_worker: _TaskWorker | None = None
+        self._thread_pool = QThreadPool(self)
+        self._thread_pool.setMaxThreadCount(1)
+
+        self._tabs = QTabWidget()
+
+        mounted_tab, self._mounted_table = (
+            self._build_mounted_storage_tab(provider)
+        )
+
+        self._network_share = NetworkShareView()
+        self._network_share.share_saved.connect(
+            self._on_share_saved
+        )
+
+        self._tabs.addTab(
+            mounted_tab,
+            "Mounted Storage",
+        )
+        self._tabs.addTab(
+            self._network_share,
+            "Add Network Share",
+        )
+
+        heading = QLabel("Mount Management")
+        heading.setStyleSheet(
+            "font-size: 24px; font-weight: bold;"
+        )
+
+        description = QLabel(
+            "View mounted storage and connect network shares."
+        )
+        description.setWordWrap(True)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(12)
+        layout.addWidget(heading)
+        layout.addWidget(description)
+        layout.addWidget(self._tabs, 1)
+
+    def _build_mounted_storage_tab(
+        self,
+        provider: MountsTableProvider,
+    ) -> tuple[QWidget, DataTable]:
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 12, 0, 0)
+
+        explanation = QLabel(
+            "This list includes active mounts and persistent entries "
+            "from /etc/fstab."
+        )
+        explanation.setWordWrap(True)
+
+        table = DataTable(
+            provider=provider,
+            selectable=True,
+            sortable=True,
+            action_handler=self._handle_table_action,
+        )
+
+        layout.addWidget(explanation)
+        layout.addWidget(table, 1)
+        return container, table
+
+    def _handle_table_action(
+        self,
+        action: TableAction,
+        row: dict[str, Any],
+    ) -> bool:
+        if action.id == "modify":
+            if bool(row.get("mounted", False)):
+                QMessageBox.information(
+                    self,
+                    "Unmount Before Modifying",
+                    (
+                        f"{row['mountpoint']} is currently mounted.\n\n"
+                        "Unmount the share before changing its "
+                        "configuration."
+                    ),
+                )
+                return True
+
+            self._network_share.load_existing(row)
+            self._tabs.setCurrentIndex(1)
+            return True
+
+        if action.id == "mount":
+            self._run_row_task(
+                "mounts.mount",
+                {"mountpoint": row["mountpoint"]},
+                "Mount Filesystem",
+                (
+                    f"Mount {row['source']} at "
+                    f"{row['mountpoint']}?"
+                ),
+            )
+            return True
+
+        if action.id == "unmount":
+            self._run_row_task(
+                "mounts.unmount",
+                {"mountpoint": row["mountpoint"]},
+                "Unmount Filesystem",
+                (
+                    f"Unmount {row['mountpoint']}?\n\n"
+                    "Applications using files on this mount may stop "
+                    "working until it is mounted again."
+                ),
+            )
+            return True
+
+        if action.id == "remove":
+            self._run_row_task(
+                "mounts.remove_network_share",
+                {
+                    "source": row["source"],
+                    "mountpoint": row["mountpoint"],
+                    "credential_path": row.get(
+                        "credential_path",
+                        "",
+                    ),
+                    "unmount_first": bool(
+                        row.get("mounted", False)
+                    ),
+                },
+                "Remove Network Share",
+                (
+                    f"Remove {row['source']} from /etc/fstab?\n\n"
+                    "LEC will create a verified backup first. "
+                    "The share will also be unmounted if necessary."
+                ),
+            )
+            return True
+
+        return False
+
+    def _run_row_task(
+        self,
+        task_id: str,
+        arguments: dict[str, Any],
+        title: str,
+        message: str,
+    ) -> None:
+        response = QMessageBox.question(
+            self,
+            title,
+            message,
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if response != QMessageBox.StandardButton.Yes:
+            return
+
+        worker = _TaskWorker(
+            PrivilegedTask(
+                task_id=task_id,
+                arguments=arguments,
+            )
+        )
+        worker.signals.succeeded.connect(
+            self._row_task_succeeded
+        )
+        worker.signals.failed.connect(
+            self._row_task_failed
+        )
+        worker.signals.finished.connect(
+            self._row_task_finished
+        )
+
+        self._active_worker = worker
+        self._thread_pool.start(worker)
+
+    def _row_task_succeeded(self, message: str) -> None:
+        QMessageBox.information(
+            self,
+            "Mount Management",
+            message,
+        )
+
+    def _row_task_failed(self, message: str) -> None:
+        QMessageBox.critical(
+            self,
+            "Mount Action Failed",
+            message,
+        )
+
+    def _row_task_finished(self) -> None:
+        self._active_worker = None
+        self._mounted_table.reload()
+
+    def _on_share_saved(self) -> None:
+        self._tabs.setCurrentIndex(0)
+        self._mounted_table.reload()
+
+
+class NetworkShareView(QWidget):
+    """SMB and NFS network-share configuration form."""
+
+    share_saved = Signal()
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+
+        self._mountpoint_was_edited = False
+        self._save_in_progress = False
+        self._active_worker: _TaskWorker | None = None
+        self._thread_pool = QThreadPool(self)
+        self._thread_pool.setMaxThreadCount(1)
+
+        self._editing = False
+        self._original_source = ""
+        self._original_mountpoint = ""
+        self._existing_credential_path = ""
+
+        self._heading = QLabel("Add a Network Share")
+        self._heading.setStyleSheet(
+            "font-size: 18px; font-weight: bold;"
+        )
+
+        explanation = QLabel(
+            "Configure a Windows/SMB share or an NFS export. "
+            "LEC will back up /etc/fstab before saving."
+        )
+        explanation.setWordWrap(True)
+
+        self._protocol = QComboBox()
+        self._protocol.addItem(
+            "Windows / SMB share",
+            "smb",
+        )
+        self._protocol.addItem(
+            "NFS share",
+            "nfs",
+        )
+        self._protocol.currentIndexChanged.connect(
+            self._protocol_changed
+        )
+
+        self._dependency = QLabel()
+        self._dependency.setWordWrap(True)
+        self._dependency.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+
+        protocol_form = QFormLayout()
+        protocol_form.addRow("Share type:", self._protocol)
+        protocol_form.addRow(
+            "Required software:",
+            self._dependency,
+        )
+
+        self._forms = QStackedWidget()
+        self._forms.addWidget(self._build_smb_form())
+        self._forms.addWidget(self._build_nfs_form())
+
+        self._mountpoint = QLineEdit()
+        self._mountpoint.setPlaceholderText(
+            "/mnt/server-share"
+        )
+        self._mountpoint.textEdited.connect(
+            self._mark_mountpoint_edited
+        )
+
+        self._startup_mode = QComboBox()
+        self._startup_mode.addItem(
+            "Mount when first accessed (recommended)",
+            "on-demand",
+        )
+        self._startup_mode.addItem(
+            "Mount during startup",
+            "startup",
+        )
+        self._startup_mode.addItem(
+            "Manual only",
+            "manual",
+        )
+
+        self._read_only = QCheckBox("Mount read-only")
+        self._mount_now = QCheckBox(
+            "Mount the share immediately after saving"
+        )
+        self._mount_now.setChecked(True)
+
+        behavior_group = QGroupBox(
+            "Local Mount Behavior"
+        )
+        behavior_form = QFormLayout(behavior_group)
+        behavior_form.addRow(
+            "Local mount point:",
+            self._mountpoint,
+        )
+        behavior_form.addRow(
+            "Startup behavior:",
+            self._startup_mode,
+        )
+        behavior_form.addRow("", self._read_only)
+        behavior_form.addRow("", self._mount_now)
+
+        self._preview = QPlainTextEdit()
+        self._preview.setReadOnly(True)
+        self._preview.setMinimumHeight(120)
+
+        self._preview_button = QPushButton(
+            "Preview Configuration"
+        )
+        self._preview_button.clicked.connect(
+            self._preview_configuration
+        )
+
+        self._save_button = QPushButton(
+            "Save Network Share"
+        )
+        self._save_button.clicked.connect(
+            self._save_configuration
+        )
+
+        self._clear_button = QPushButton("Clear")
+        self._clear_button.clicked.connect(
+            self._clear_form
+        )
+
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        button_layout.addWidget(self._clear_button)
+        button_layout.addWidget(self._preview_button)
+        button_layout.addWidget(self._save_button)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 12, 0, 0)
+        layout.setSpacing(12)
+        layout.addWidget(self._heading)
+        layout.addWidget(explanation)
+        layout.addLayout(protocol_form)
+        layout.addWidget(self._forms)
+        layout.addWidget(behavior_group)
+        layout.addWidget(
+            QLabel("Configuration preview:")
+        )
+        layout.addWidget(self._preview)
+        layout.addLayout(button_layout)
+        layout.addStretch()
+
+        self._connect_suggestion_signals()
+        self._protocol_changed()
+
+    def _build_smb_form(self) -> QWidget:
+        container = QWidget()
+        form = QFormLayout(container)
+        form.setContentsMargins(0, 0, 0, 0)
+
+        self._smb_server = QLineEdit()
+        self._smb_share = QLineEdit()
+
+        self._smb_guest = QCheckBox(
+            "Connect without a username or password"
+        )
+        self._smb_guest.toggled.connect(
+            self._update_smb_credentials_enabled
+        )
+
+        self._smb_username = QLineEdit()
+        self._smb_password = QLineEdit()
+        self._smb_password.setEchoMode(
+            QLineEdit.EchoMode.Password
+        )
+        self._smb_domain = QLineEdit()
+
+        form.addRow("Server:", self._smb_server)
+        form.addRow("Share name:", self._smb_share)
+        form.addRow("", self._smb_guest)
+        form.addRow("Username:", self._smb_username)
+        form.addRow("Password:", self._smb_password)
+        form.addRow("Domain:", self._smb_domain)
+        return container
+
+    def _build_nfs_form(self) -> QWidget:
+        container = QWidget()
+        form = QFormLayout(container)
+        form.setContentsMargins(0, 0, 0, 0)
+
+        self._nfs_server = QLineEdit()
+        self._nfs_export = QLineEdit()
+
+        self._nfs_version = QComboBox()
+        self._nfs_version.addItems(
+            ["Automatic", "4.2", "4.1", "4", "3"]
+        )
+
+        form.addRow("Server:", self._nfs_server)
+        form.addRow(
+            "Exported path:",
+            self._nfs_export,
+        )
+        form.addRow(
+            "NFS version:",
+            self._nfs_version,
+        )
+        return container
+
+    def load_existing(
+        self,
+        row: dict[str, Any],
+    ) -> None:
+        self._clear_form()
+
+        self._editing = True
+        self._original_source = str(row["source"])
+        self._original_mountpoint = str(
+            row["mountpoint"]
+        )
+        self._existing_credential_path = str(
+            row.get("credential_path", "")
+        )
+
+        filesystem = str(row["filesystem"]).lower()
+        options = tuple(row.get("option_list", ()))
+
+        if filesystem in {"cifs", "smb3"}:
+            self._protocol.setCurrentIndex(0)
+            server, share = _split_smb_source(
+                self._original_source,
+                options,
+            )
+            self._smb_server.setText(server)
+            self._smb_share.setText(share)
+            self._smb_guest.setChecked(
+                "guest" in options
+            )
+        else:
+            self._protocol.setCurrentIndex(1)
+            server, export = _split_nfs_source(
+                self._original_source
+            )
+            self._nfs_server.setText(server)
+            self._nfs_export.setText(export)
+            version = _option_value(
+                options,
+                "nfsvers",
+            )
+            if version:
+                index = self._nfs_version.findText(
+                    version
+                )
+                if index >= 0:
+                    self._nfs_version.setCurrentIndex(
+                        index
+                    )
+
+        self._mountpoint_was_edited = True
+        self._mountpoint.setText(
+            self._original_mountpoint
+        )
+        self._read_only.setChecked(
+            "ro" in options
+        )
+        self._mount_now.setChecked(
+            bool(row.get("mounted", False))
+        )
+
+        if "noauto" in options:
+            mode = "manual"
+        elif "x-systemd.automount" in options:
+            mode = "on-demand"
+        else:
+            mode = "startup"
+
+        index = self._startup_mode.findData(mode)
+        if index >= 0:
+            self._startup_mode.setCurrentIndex(index)
+
+        self._heading.setText(
+            "Modify Network Share"
+        )
+        self._save_button.setText(
+            "Save Changes"
+        )
+        self._preview.clear()
+
+    def _connect_suggestion_signals(self) -> None:
+        for field in (
+            self._smb_server,
+            self._smb_share,
+            self._nfs_server,
+            self._nfs_export,
+        ):
+            field.textChanged.connect(
+                self._update_mountpoint_suggestion
+            )
+
+    def _protocol_changed(self) -> None:
+        protocol = self._current_protocol()
+        self._forms.setCurrentIndex(
+            0 if protocol == "smb" else 1
+        )
+
+        status = dependency_status(protocol)
+
+        if status.available:
+            self._dependency.setText(
+                f"Installed ({status.helper})"
+            )
+            self._save_button.setEnabled(True)
+        else:
+            self._dependency.setText(
+                f"Not installed. Run: {status.install_command}"
+            )
+            self._save_button.setEnabled(False)
+
+        if not self._editing:
+            self._mountpoint_was_edited = False
+            self._update_mountpoint_suggestion()
+
+        self._preview.clear()
+
+    def _update_smb_credentials_enabled(
+        self,
+        guest: bool,
+    ) -> None:
+        self._smb_username.setEnabled(not guest)
+        self._smb_password.setEnabled(not guest)
+        self._smb_domain.setEnabled(not guest)
+
+    def _mark_mountpoint_edited(self) -> None:
+        self._mountpoint_was_edited = True
+
+    def _update_mountpoint_suggestion(self) -> None:
+        if self._mountpoint_was_edited:
+            return
+
+        if self._current_protocol() == "smb":
+            server = self._smb_server.text()
+            remote = self._smb_share.text()
+        else:
+            server = self._nfs_server.text()
+            remote = self._nfs_export.text()
+
+        if not server.strip() and not remote.strip():
+            self._mountpoint.clear()
+            return
+
+        self._mountpoint.setText(
+            suggested_mountpoint(
+                protocol=self._current_protocol(),
+                server=server,
+                remote_name=remote,
+            )
+        )
+
+    def _preview_configuration(self) -> None:
+        try:
+            preview = self._build_preview()
+        except ValueError as exc:
+            QMessageBox.warning(
+                self,
+                "Configuration Is Incomplete",
+                str(exc),
+            )
+            return
+
+        self._preview.setPlainText(
+            self._render_preview(preview)
+        )
+
+    def _save_configuration(self) -> None:
+        if self._save_in_progress:
+            return
+
+        try:
+            preview = self._build_preview()
+        except ValueError as exc:
+            QMessageBox.warning(
+                self,
+                "Configuration Is Incomplete",
+                str(exc),
+            )
+            return
+
+        task_id = (
+            "mounts.update_network_share"
+            if self._editing
+            else "mounts.install_network_share"
+        )
+
+        arguments = {
+            "protocol": preview.protocol,
+            "source": preview.source,
+            "mountpoint": preview.mountpoint,
+            "filesystem": preview.filesystem,
+            "fstab_line": preview.fstab_line,
+            "credential_path": (
+                preview.credential_path or ""
+            ),
+            "credential_text": (
+                preview.credential_text or ""
+            ),
+            "mount_now": self._mount_now.isChecked(),
+        }
+
+        if self._editing:
+            arguments.update(
+                {
+                    "original_source": self._original_source,
+                    "original_mountpoint": (
+                        self._original_mountpoint
+                    ),
+                }
+            )
+
+        response = QMessageBox.question(
+            self,
+            "Save Network Share",
+            (
+                f"Save {preview.source} at "
+                f"{preview.mountpoint}?\n\n"
+                "LEC will create a verified backup first."
+            ),
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if response != QMessageBox.StandardButton.Yes:
+            return
+
+        self._set_busy(True)
+
+        worker = _TaskWorker(
+            PrivilegedTask(
+                task_id=task_id,
+                arguments=arguments,
+            )
+        )
+        worker.signals.succeeded.connect(
+            self._save_succeeded
+        )
+        worker.signals.failed.connect(
+            self._save_failed
+        )
+        worker.signals.finished.connect(
+            self._save_finished
+        )
+
+        self._active_worker = worker
+        self._thread_pool.start(worker)
+
+    def _save_succeeded(self, message: str) -> None:
+        QMessageBox.information(
+            self,
+            "Network Share Saved",
+            message,
+        )
+        self._clear_form()
+        self.share_saved.emit()
+
+    def _save_failed(self, message: str) -> None:
+        QMessageBox.critical(
+            self,
+            "Network Share Could Not Be Saved",
+            message,
+        )
+
+    def _save_finished(self) -> None:
+        self._active_worker = None
+        self._set_busy(False)
+
+    def _set_busy(self, busy: bool) -> None:
+        self._save_in_progress = busy
+        for widget in (
+            self._protocol,
+            self._forms,
+            self._mountpoint,
+            self._startup_mode,
+            self._read_only,
+            self._mount_now,
+            self._clear_button,
+            self._preview_button,
+        ):
+            widget.setEnabled(not busy)
+
+        status = dependency_status(
+            self._current_protocol()
+        )
+        self._save_button.setEnabled(
+            not busy and status.available
+        )
+
+    def _build_preview(self) -> NetworkSharePreview:
+        startup_mode = str(
+            self._startup_mode.currentData()
+        )
+
+        if self._current_protocol() == "smb":
+            return build_smb_preview(
+                server=self._smb_server.text(),
+                share=self._smb_share.text(),
+                mountpoint=self._mountpoint.text(),
+                username=self._smb_username.text(),
+                password=self._smb_password.text(),
+                domain=self._smb_domain.text(),
+                guest=self._smb_guest.isChecked(),
+                read_only=self._read_only.isChecked(),
+                startup_mode=startup_mode,
+                existing_credential_path=(
+                    self._existing_credential_path
+                ),
+            )
+
+        return build_nfs_preview(
+            server=self._nfs_server.text(),
+            export_path=self._nfs_export.text(),
+            mountpoint=self._mountpoint.text(),
+            nfs_version=self._nfs_version.currentText(),
+            read_only=self._read_only.isChecked(),
+            startup_mode=startup_mode,
+        )
+
+    @staticmethod
+    def _render_preview(
+        preview: NetworkSharePreview,
+    ) -> str:
+        lines = [
+            "# Entry to be written to /etc/fstab",
+            preview.fstab_line,
+        ]
+
+        if preview.credential_path:
+            lines.extend(
+                [
+                    "",
+                    "# Credential file",
+                    preview.credential_path,
+                ]
+            )
+
+            if preview.credential_text:
+                lines.extend(
+                    [
+                        "",
+                        preview.credential_text,
+                    ]
+                )
+            else:
+                lines.append(
+                    "# Existing credential file will be retained."
+                )
+
+        return "\n".join(lines).rstrip() + "\n"
+
+    def _clear_form(self) -> None:
+        self._editing = False
+        self._original_source = ""
+        self._original_mountpoint = ""
+        self._existing_credential_path = ""
+
+        for field in (
+            self._smb_server,
+            self._smb_share,
+            self._smb_username,
+            self._smb_password,
+            self._smb_domain,
+            self._nfs_server,
+            self._nfs_export,
+        ):
+            field.clear()
+
+        self._smb_guest.setChecked(False)
+        self._nfs_version.setCurrentIndex(0)
+        self._startup_mode.setCurrentIndex(0)
+        self._read_only.setChecked(False)
+        self._mount_now.setChecked(True)
+        self._mountpoint_was_edited = False
+        self._mountpoint.clear()
+        self._preview.clear()
+        self._heading.setText(
+            "Add a Network Share"
+        )
+        self._save_button.setText(
+            "Save Network Share"
+        )
+
+    def _current_protocol(self) -> str:
+        return str(self._protocol.currentData())
+
+
+def _split_smb_source(
+    source: str,
+    options: tuple[str, ...],
+) -> tuple[str, str]:
+    cleaned = source.removeprefix("//")
+    server, _, share = cleaned.partition("/")
+    prefix = _option_value(options, "prefixpath")
+
+    if prefix:
+        share = f"{share}/{prefix}"
+
+    return server, share
+
+
+def _split_nfs_source(source: str) -> tuple[str, str]:
+    server, _, export = source.partition(":")
+    return server, export
+
+
+def _option_value(
+    options: tuple[str, ...],
+    name: str,
+) -> str:
+    prefix = f"{name}="
+
+    for option in options:
+        if option.startswith(prefix):
+            return option.partition("=")[2]
+
+    return ""
