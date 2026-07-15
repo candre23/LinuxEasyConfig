@@ -1,0 +1,9 @@
+{
+  "format_version": 1,
+  "id": "org.linuxeasyconfig.firewall",
+  "name": "Firewall",
+  "version": "0.1.0",
+  "description": "Install and manage Ubuntu's UFW firewall.",
+  "module_type": "extended",
+  "entry_point": "module:FirewallModule"
+}

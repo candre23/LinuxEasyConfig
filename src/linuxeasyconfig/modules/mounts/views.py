@@ -115,7 +115,7 @@ class MountsView(QWidget):
             "Add Local Folder Mount",
         )
 
-        heading = QLabel("Mount Management")
+        heading = QLabel("Mounts & Shares")
         heading.setStyleSheet(
             "font-size: 24px; font-weight: bold;"
         )
@@ -275,7 +275,7 @@ class MountsView(QWidget):
     def _row_task_succeeded(self, message: str) -> None:
         QMessageBox.information(
             self,
-            "Mount Management",
+            "Mounts & Shares",
             message,
         )
 

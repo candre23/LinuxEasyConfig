@@ -1,7 +1,7 @@
 {
   "format_version": 1,
   "id": "org.linuxeasyconfig.mounts",
-  "name": "Mount Management",
+  "name": "Mounts & Shares",
   "version": "0.1.0",
   "description": "Connect and manage local and network storage.",
   "module_type": "extended",

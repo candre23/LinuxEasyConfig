@@ -6,34 +6,35 @@ from linuxeasyconfig.core.module_api import (
     ViewDefinition,
 )
 
-from .repository import ReverseProxyRepository
-from .views import ReverseProxyView
+from .repository import FirewallRepository
+from .views import FirewallView
 
 
-class ReverseProxyModule(LECModule):
+class FirewallModule(LECModule):
     def __init__(self) -> None:
-        self._repository = ReverseProxyRepository()
+        self._repository = FirewallRepository()
 
     def feature_definitions(self) -> list[FeatureDefinition]:
         return [
             FeatureDefinition(
-                id="reverse_proxy.main",
-                title="Reverse Proxy",
+                id="firewall.main",
+                title="Firewall",
                 target_type="view",
-                target_id="reverse_proxy.main",
+                target_id="firewall.main",
                 description=(
-                    "Install and manage Caddy with Fail2Ban protection."
+                    "Manage Ubuntu's UFW firewall using "
+                    "plain-language rules."
                 ),
                 category="System",
                 icon="network-server",
                 keywords=(
-                    "reverse proxy",
-                    "caddy",
-                    "fail2ban",
-                    "https",
-                    "domain",
-                    "proxy",
+                    "firewall",
+                    "ufw",
+                    "ports",
                     "security",
+                    "network",
+                    "allow",
+                    "deny",
                 ),
             )
         ]
@@ -41,11 +42,11 @@ class ReverseProxyModule(LECModule):
     def view_definitions(self) -> list[ViewDefinition]:
         return [
             ViewDefinition(
-                id="reverse_proxy.main",
-                title="Reverse Proxy",
+                id="firewall.main",
+                title="Firewall",
                 view_type="custom",
                 data={
-                    "factory": lambda: ReverseProxyView(
+                    "factory": lambda: FirewallView(
                         self._repository
                     ),
                 },

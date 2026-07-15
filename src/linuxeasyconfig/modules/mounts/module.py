@@ -18,7 +18,7 @@ class MountsModule(LECModule):
         return [
             FeatureDefinition(
                 id="mounts.main",
-                title="Mount Management",
+                title="Mounts & Shares",
                 target_type="view",
                 target_id="mounts.main",
                 description="Connect and manage local and network storage.",
@@ -41,7 +41,7 @@ class MountsModule(LECModule):
         return [
             ViewDefinition(
                 id="mounts.main",
-                title="Mount Management",
+                title="Mounts & Shares",
                 view_type="custom",
                 data={
                     "factory": lambda: MountsView(self._provider),

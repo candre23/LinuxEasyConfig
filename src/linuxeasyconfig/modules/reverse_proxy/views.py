@@ -88,7 +88,7 @@ class ReverseProxyView(QWidget):
         self._editing_rule = ""
         self._editing_credential = ""
 
-        heading = QLabel("Reverse Proxy Management")
+        heading = QLabel("Reverse Proxy")
         heading.setStyleSheet(
             "font-size: 24px; font-weight: bold;"
         )
