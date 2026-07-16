@@ -17,7 +17,12 @@ from PySide6.QtWidgets import (
 )
 
 from linuxeasyconfig.core.module_manager import ModuleManager
-from linuxeasyconfig.core.registries import FeatureRegistry, ViewRegistry
+from linuxeasyconfig.core.registries import (
+    CapabilityRegistry,
+    FeatureRegistry,
+    LocalServiceRegistry,
+    ViewRegistry,
+)
 from linuxeasyconfig.core.view_renderer import ViewRenderError, ViewRenderer
 
 
@@ -169,9 +174,13 @@ def main() -> int:
 
     feature_registry = FeatureRegistry()
     view_registry = ViewRegistry()
+    capability_registry = CapabilityRegistry()
+    service_registry = LocalServiceRegistry()
     module_manager = ModuleManager(
         feature_registry,
         view_registry,
+        capability_registry,
+        service_registry,
     )
 
     modules_directory = (

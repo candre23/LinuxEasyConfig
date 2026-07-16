@@ -1,0 +1,9 @@
+{
+  "format_version": 1,
+  "id": "org.linuxeasyconfig.mounts",
+  "name": "Mounts & Shares",
+  "version": "0.2.0",
+  "description": "Mount local and remote storage and share local folders over the network.",
+  "module_type": "extended",
+  "entry_point": "module:MountsModule"
+}

@@ -1,0 +1,9 @@
+{
+  "format_version": 1,
+  "id": "org.linuxeasyconfig.example",
+  "name": "Example Module",
+  "version": "0.1.0",
+  "description": "A simple module used to verify that LEC module discovery is working.",
+  "module_type": "declarative",
+  "entry_point": "module:ExampleModule"
+}

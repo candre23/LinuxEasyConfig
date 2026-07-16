@@ -3,13 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from linuxeasyconfig.core.module_api import ModuleContext
 from linuxeasyconfig.core.module_loader import (
     ModuleLoadError,
     ModuleRecord,
     discover_modules,
 )
 from linuxeasyconfig.core.registries import (
+    CapabilityRegistry,
     FeatureRegistry,
+    LocalServiceRegistry,
     RegistryError,
     ViewRegistry,
 )
@@ -34,24 +37,37 @@ class ModuleManager:
         self,
         feature_registry: FeatureRegistry,
         view_registry: ViewRegistry,
+        capability_registry: CapabilityRegistry,
+        service_registry: LocalServiceRegistry,
     ) -> None:
         self._feature_registry = feature_registry
         self._view_registry = view_registry
+        self._capability_registry = capability_registry
+        self._service_registry = service_registry
         self._loaded_modules: list[ModuleRecord] = []
 
     def load_from_directory(self, modules_directory: Path) -> ModuleManagerResult:
         discovered_modules, load_errors = discover_modules(modules_directory)
         registration_errors: list[ModuleRegistrationError] = []
+        context = ModuleContext(
+            capability_registry=self._capability_registry,
+            service_registry=self._service_registry,
+        )
 
         for record in discovered_modules:
             module_id = str(record.manifest["id"])
 
             try:
-                features = record.instance.feature_definitions()
+                record.instance.bind_context(context)
                 views = record.instance.view_definitions()
+                features = record.instance.feature_definitions()
+                capabilities = record.instance.capability_definitions()
+                services = record.instance.service_definitions()
 
                 self._view_registry.register_many(views)
                 self._feature_registry.register_many(features)
+                self._capability_registry.register_many(capabilities)
+                self._service_registry.register_many(services)
             except RegistryError as exc:
                 registration_errors.append(
                     ModuleRegistrationError(
