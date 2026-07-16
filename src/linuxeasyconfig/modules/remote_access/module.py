@@ -40,6 +40,9 @@ class RemoteAccessModule(LECModule):
                     "openssh",
                     "terminal",
                     "authorized keys",
+                    "VNC",
+                    "TigerVNC",
+                    "Guacamole",
                 ),
             )
         ]
@@ -60,29 +63,63 @@ class RemoteAccessModule(LECModule):
         ]
 
     def service_definitions(self) -> list[LocalServiceDefinition]:
-        snapshot = self._repository.snapshot()
-        if not bool(snapshot.get("installed", False)):
-            return []
+        services: list[LocalServiceDefinition] = []
 
-        return [
-            LocalServiceDefinition(
-                id="service.ssh",
-                provider_module_id=(
-                    "org.linuxeasyconfig.remote_access"
-                ),
-                title="Secure Shell",
-                protocol="tcp",
-                host="127.0.0.1",
-                port=int(snapshot.get("port", 22)),
-                category="remote-access",
-                description=(
-                    "OpenSSH remote terminal access."
-                ),
-                metadata={
-                    "active": bool(
-                        snapshot.get("active", False)
+        ssh = self._repository.snapshot()
+        if bool(ssh.get("installed", False)):
+            services.append(
+                LocalServiceDefinition(
+                    id="service.ssh",
+                    provider_module_id=(
+                        "org.linuxeasyconfig.remote_access"
                     ),
-                    "reverse_proxy_compatible": False,
-                },
+                    title="Secure Shell",
+                    protocol="tcp",
+                    host="127.0.0.1",
+                    port=int(ssh.get("port", 22)),
+                    category="remote-access",
+                    description=(
+                        "OpenSSH remote terminal access."
+                    ),
+                    metadata={
+                        "active": bool(
+                            ssh.get("active", False)
+                        ),
+                        "reverse_proxy_compatible": False,
+                    },
+                )
             )
-        ]
+
+        vnc = self._repository.vnc_snapshot()
+        configuration = vnc.get("configuration")
+        if (
+            bool(vnc.get("installed", False))
+            and isinstance(configuration, dict)
+        ):
+            services.append(
+                LocalServiceDefinition(
+                    id="service.vnc",
+                    provider_module_id=(
+                        "org.linuxeasyconfig.remote_access"
+                    ),
+                    title="TigerVNC",
+                    protocol="tcp",
+                    host="127.0.0.1",
+                    port=int(
+                        configuration.get("port", 5901)
+                    ),
+                    category="remote-access",
+                    description=(
+                        "TigerVNC virtual desktop access."
+                    ),
+                    metadata={
+                        "active": bool(
+                            vnc.get("active", False)
+                        ),
+                        "reverse_proxy_compatible": False,
+                        "guacamole_compatible": True,
+                    },
+                )
+            )
+
+        return services

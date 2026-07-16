@@ -106,6 +106,10 @@ class FirewallView(QWidget):
             "Inbound and Outbound Rules",
         )
         self._tabs.addTab(
+            self._build_docker_rules_tab(),
+            "Docker Rules",
+        )
+        self._tabs.addTab(
             self._build_log_tab(),
             "Blocked Activity",
         )
@@ -494,6 +498,106 @@ class FirewallView(QWidget):
         self._source_scope_changed()
         self._service_mode_changed()
         self._update_delete_button()
+        if hasattr(self, "_remove_docker_rule"):
+            self._update_docker_rule_buttons()
+        return container
+
+    def _build_docker_rules_tab(self) -> QWidget:
+        container = QWidget()
+        layout = QVBoxLayout(container)
+
+        explanation = QLabel(
+            "Docker-published ports can bypass ordinary UFW "
+            "rules. These rules are applied in Docker's own "
+            "forwarding path and are restored after restart."
+        )
+        explanation.setWordWrap(True)
+
+        self._docker_backend = QLabel()
+        self._docker_backend.setWordWrap(True)
+
+        self._docker_rules_table = QTableWidget(0, 5)
+        self._docker_rules_table.setHorizontalHeaderLabels(
+            [
+                "Container",
+                "Published Port",
+                "Container Port",
+                "Protocol",
+                "Access",
+            ]
+        )
+        docker_header = (
+            self._docker_rules_table.horizontalHeader()
+        )
+        docker_header.setSectionResizeMode(
+            QHeaderView.ResizeMode.Interactive
+        )
+        docker_header.setStretchLastSection(True)
+        self._docker_rules_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self._docker_rules_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self._docker_rules_table.setWordWrap(True)
+
+        self._block_docker_rule = QPushButton(
+            "Block Selected Docker Port"
+        )
+        self._block_docker_rule.clicked.connect(
+            self._begin_block_docker_rule
+        )
+
+        self._unblock_docker_rule = QPushButton(
+            "Unblock Selected Docker Port"
+        )
+        self._unblock_docker_rule.clicked.connect(
+            self._begin_unblock_docker_rule
+        )
+
+        self._remove_docker_rule = QPushButton(
+            "Stop Managing This Port"
+        )
+        self._remove_docker_rule.clicked.connect(
+            self._begin_remove_docker_rule
+        )
+        self._docker_rules_table.itemSelectionChanged.connect(
+            self._update_docker_rule_buttons
+        )
+
+        reapply = QPushButton(
+            "Reapply Docker Rules"
+        )
+        reapply.clicked.connect(
+            lambda: self._run_task(
+                "firewall.reapply_docker_rules",
+                {},
+                "Docker Firewall Rules Reapplied",
+            )
+        )
+
+        buttons = QHBoxLayout()
+        buttons.addWidget(reapply)
+        buttons.addStretch()
+        buttons.addWidget(
+            self._block_docker_rule
+        )
+        buttons.addWidget(
+            self._unblock_docker_rule
+        )
+        buttons.addWidget(
+            self._remove_docker_rule
+        )
+
+        layout.addWidget(explanation)
+        layout.addWidget(self._docker_backend)
+        layout.addWidget(
+            self._docker_rules_table,
+            1,
+        )
+        layout.addLayout(buttons)
+
+        self._update_docker_rule_buttons()
         return container
 
     def _build_log_tab(self) -> QWidget:
@@ -607,6 +711,7 @@ class FirewallView(QWidget):
         self._refresh_local_networks()
         self._refresh_profiles()
         self._refresh_rules()
+        self._refresh_docker_rules()
         self._refresh_logs()
 
         self._tabs.setEnabled(
@@ -698,6 +803,217 @@ class FirewallView(QWidget):
                 )
 
         self._update_delete_button()
+
+    def _refresh_docker_rules(self) -> None:
+        self._docker_backend.setText(
+            "Docker firewall backend: "
+            + self._repository.docker_firewall_backend()
+        )
+        self._docker_rules_table.setRowCount(0)
+
+        for rule in self._repository.docker_rules():
+            row = self._docker_rules_table.rowCount()
+            self._docker_rules_table.insertRow(row)
+
+            values = [
+                rule.container,
+                str(rule.host_port),
+                str(rule.container_port),
+                rule.protocol.upper(),
+                (
+                    "Blocked"
+                    if rule.blocked
+                    else (
+                        "Local network only: "
+                        + ", ".join(rule.sources)
+                    )
+                ),
+            ]
+
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setToolTip(value)
+                self._docker_rules_table.setItem(
+                    row,
+                    column,
+                    item,
+                )
+
+        self._docker_rules_table.resizeRowsToContents()
+        self._update_docker_rule_buttons()
+
+    def _begin_block_docker_rule(self) -> None:
+        row = self._docker_rules_table.currentRow()
+
+        if row < 0:
+            return
+
+        container = self._docker_rules_table.item(
+            row,
+            0,
+        ).text()
+        host_port = int(
+            self._docker_rules_table.item(
+                row,
+                1,
+            ).text()
+        )
+        protocol = (
+            self._docker_rules_table.item(
+                row,
+                3,
+            ).text().lower()
+        )
+
+        response = QMessageBox.question(
+            self,
+            "Block Docker Port",
+            (
+                f"Block all new connections to {container} "
+                f"on port {host_port}/{protocol}?\n\n"
+                "The container will continue running, but this "
+                "published port will no longer be reachable."
+            ),
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if response != QMessageBox.StandardButton.Yes:
+            return
+
+        self._run_task(
+            "firewall.block_docker_service",
+            {
+                "container": container,
+                "host_port": host_port,
+                "protocol": protocol,
+            },
+            "Docker Port Blocked",
+        )
+
+    def _begin_unblock_docker_rule(self) -> None:
+        row = self._docker_rules_table.currentRow()
+
+        if row < 0:
+            return
+
+        container = self._docker_rules_table.item(
+            row,
+            0,
+        ).text()
+        host_port = int(
+            self._docker_rules_table.item(
+                row,
+                1,
+            ).text()
+        )
+        protocol = (
+            self._docker_rules_table.item(
+                row,
+                3,
+            ).text().lower()
+        )
+
+        response = QMessageBox.question(
+            self,
+            "Unblock Docker Port",
+            (
+                f"Allow new connections to {container} on "
+                f"port {host_port}/{protocol} from the "
+                "configured local networks?"
+            ),
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if response != QMessageBox.StandardButton.Yes:
+            return
+
+        self._run_task(
+            "firewall.unblock_docker_service",
+            {
+                "container": container,
+                "host_port": host_port,
+                "protocol": protocol,
+            },
+            "Docker Port Unblocked",
+        )
+
+    def _begin_remove_docker_rule(self) -> None:
+        row = self._docker_rules_table.currentRow()
+
+        if row < 0:
+            return
+
+        container = self._docker_rules_table.item(
+            row,
+            0,
+        ).text()
+        host_port = int(
+            self._docker_rules_table.item(
+                row,
+                1,
+            ).text()
+        )
+        protocol = (
+            self._docker_rules_table.item(
+                row,
+                3,
+            ).text().lower()
+        )
+
+        response = QMessageBox.warning(
+            self,
+            "Stop Managing Docker Port",
+            (
+                f"Stop managing {container} on port "
+                f"{host_port}/{protocol}?\n\n"
+                "LEC's allow and block rules will both be removed. "
+                "Docker will control access directly, and the service "
+                "may become reachable from other computers."
+            ),
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if response != QMessageBox.StandardButton.Yes:
+            return
+
+        self._run_task(
+            "firewall.remove_docker_service",
+            {
+                "container": container,
+                "host_port": host_port,
+                "protocol": protocol,
+            },
+            "Docker Firewall Rule Removed",
+        )
+
+    def _update_docker_rule_buttons(self) -> None:
+        row = self._docker_rules_table.currentRow()
+        selected = row >= 0 and not self._busy
+        blocked = False
+
+        if selected:
+            access_item = self._docker_rules_table.item(
+                row,
+                4,
+            )
+            blocked = (
+                access_item is not None
+                and access_item.text() == "Blocked"
+            )
+
+        self._block_docker_rule.setEnabled(
+            selected and not blocked
+        )
+        self._unblock_docker_rule.setEnabled(
+            selected and blocked
+        )
+        self._remove_docker_rule.setEnabled(selected)
 
     def _refresh_logs(self) -> None:
         lines = self._repository.recent_log_lines()

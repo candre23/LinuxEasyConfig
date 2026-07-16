@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from linuxeasyconfig.core.module_api import (
+    CapabilityDefinition,
     FeatureDefinition,
     LECModule,
     ViewDefinition,
@@ -35,6 +36,41 @@ class ReverseProxyModule(LECModule):
                     "proxy",
                     "security",
                 ),
+            )
+        ]
+
+
+    def capability_definitions(
+        self,
+    ) -> list[CapabilityDefinition]:
+        return [
+            CapabilityDefinition(
+                id=(
+                    "reverse_proxy."
+                    "create_http_proxy"
+                ),
+                provider_module_id=(
+                    "org.linuxeasyconfig."
+                    "reverse_proxy"
+                ),
+                title=(
+                    "Create an HTTP reverse-proxy rule"
+                ),
+                description=(
+                    "Create or update an LEC-managed "
+                    "Caddy route for an HTTP service."
+                ),
+                privileged_task_id=(
+                    "reverse_proxy.rule_save"
+                ),
+                metadata={
+                    "protocols": [
+                        "http",
+                        "https",
+                    ],
+                    "supports_login": True,
+                    "supports_websocket": True,
+                },
             )
         ]
 

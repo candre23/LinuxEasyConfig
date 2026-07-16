@@ -7,6 +7,12 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from .docker_rules import (
+    DockerFirewallRule,
+    docker_firewall_backend,
+    load_docker_rules,
+)
+
 
 SNAPSHOT_PATH = Path("/var/lib/linuxeasyconfig/firewall/status.json")
 
@@ -187,6 +193,12 @@ class FirewallRepository:
                 ),
             )
         ]
+
+    def docker_rules(self) -> list[DockerFirewallRule]:
+        return load_docker_rules()
+
+    def docker_firewall_backend(self) -> str:
+        return docker_firewall_backend()
 
     def recent_log_lines(
         self,

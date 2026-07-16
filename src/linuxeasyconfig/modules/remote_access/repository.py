@@ -7,6 +7,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from .vnc import load_vnc_snapshot
+
 
 SNAPSHOT_PATH = Path(
     "/var/lib/linuxeasyconfig/remote-access/status.json"
@@ -34,6 +36,10 @@ class RemoteAccessRepository:
             return {}
 
         return value if isinstance(value, dict) else {}
+
+
+    def vnc_snapshot(self) -> dict[str, Any]:
+        return load_vnc_snapshot()
 
     def local_networks(self) -> list[str]:
         defaults = _route_json(
