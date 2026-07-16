@@ -23,7 +23,7 @@ class HardwareMonitorModule(LECModule):
                 target_id="hardware_monitor.main",
                 description=(
                     "View live CPU, memory, storage, network, "
-                    "and temperature information."
+                    "temperature, and physical disk health information."
                 ),
                 category="System",
                 icon="utilities-system-monitor",
@@ -38,6 +38,10 @@ class HardwareMonitorModule(LECModule):
                     "disk",
                     "temperature",
                     "sensors",
+                    "SMART",
+                    "NVMe",
+                    "disk health",
+                    "self-test",
                 ),
             )
         ]

@@ -10,12 +10,14 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QLabel,
     QScrollArea,
+    QTabWidget,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from .collector import HardwareCollector
+from .disk_views import DiskHealthView
 
 
 class _SampleSignals(QObject):
@@ -152,16 +154,27 @@ class HardwareMonitorView(QWidget):
         scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         scroll_area.setWidget(dashboard)
 
+        live_tab = QWidget()
+        live_layout = QVBoxLayout(live_tab)
+        live_layout.setContentsMargins(0, 12, 0, 0)
+        live_layout.addWidget(scroll_area, 1)
+
+        self._status = QLabel()
+        self._status.setStyleSheet("color: palette(mid);")
+        live_layout.addWidget(self._status)
+
+        tabs = QTabWidget()
+        tabs.addTab(live_tab, "Live Monitor")
+        tabs.addTab(
+            DiskHealthView(),
+            "Disk Health",
+        )
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 18, 18, 18)
         layout.setSpacing(12)
         layout.addWidget(heading)
-        # layout.addWidget(description)
-        layout.addWidget(scroll_area, 1)
-
-        self._status = QLabel()
-        self._status.setStyleSheet("color: palette(mid);")
-        layout.addWidget(self._status)
+        layout.addWidget(tabs, 1)
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._request_sample)
