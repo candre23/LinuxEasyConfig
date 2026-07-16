@@ -4,12 +4,15 @@ import argparse
 import importlib
 import importlib.util
 import json
-import pkgutil
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
 import linuxeasyconfig.modules as modules_package
+
+from linuxeasyconfig.core.module_loader import (
+    active_module_package_names,
+)
 
 
 PrivilegedHandler = Callable[[dict[str, Any]], str]
@@ -22,29 +25,34 @@ class PrivilegedHelperError(RuntimeError):
 
 def discover_privileged_tasks() -> Registry:
     """
-    Discover optional privileged.py providers from installed LEC modules.
+    Discover privileged.py providers from the active LEC module set.
 
-    A module may expose a mapping named PRIVILEGED_TASKS:
-
-        PRIVILEGED_TASKS = {
-            "module.task_name": handler,
-        }
-
-    Each handler receives the task argument dictionary and returns a
-    user-facing result message.
+    Development folders take precedence over packaged .lec copies.
+    Packaged modules are extracted into LEC's module cache before
+    providers are imported.
     """
 
     registry: Registry = {}
 
-    for module_info in pkgutil.iter_modules(
-        modules_package.__path__
-    ):
-        if not module_info.ispkg:
-            continue
+    modules_directory = _modules_directory()
+    package_names, load_errors = active_module_package_names(
+        modules_directory
+    )
 
+    if load_errors:
+        details = "; ".join(
+            f"{error.module_path.name}: {error.message}"
+            for error in load_errors
+        )
+        raise PrivilegedHelperError(
+            "One or more modules could not be prepared: "
+            + details
+        )
+
+    for package_name in package_names:
         provider_name = (
             f"{modules_package.__name__}."
-            f"{module_info.name}.privileged"
+            f"{package_name}.privileged"
         )
 
         if importlib.util.find_spec(provider_name) is None:
@@ -115,6 +123,21 @@ def execute_task(
 
     return result
 
+
+def _modules_directory() -> Path:
+    package_paths = list(
+        getattr(modules_package, "__path__", [])
+    )
+
+    for value in package_paths:
+        path = Path(value)
+
+        if path.name == "modules":
+            return path
+
+    raise PrivilegedHelperError(
+        "LEC's modules directory could not be located."
+    )
 
 
 def _read_payload(

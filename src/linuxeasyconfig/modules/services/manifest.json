@@ -1,9 +1,0 @@
-{
-  "format_version": 1,
-  "id": "org.linuxeasyconfig.services",
-  "name": "Background Services",
-  "version": "0.1.0",
-  "description": "View and manage applications that run in the background.",
-  "module_type": "extended",
-  "entry_point": "module:ServicesModule"
-}
