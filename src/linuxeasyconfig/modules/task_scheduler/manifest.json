@@ -1,0 +1,9 @@
+{
+  "format_version": 1,
+  "id": "org.linuxeasyconfig.task_scheduler",
+  "name": "Task Scheduler",
+  "version": "0.1.0",
+  "description": "Create and manage LEC scheduled tasks and inspect existing systemd timers and cron schedules.",
+  "module_type": "extended",
+  "entry_point": "module:TaskSchedulerModule"
+}

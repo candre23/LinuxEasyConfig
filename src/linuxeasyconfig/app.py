@@ -17,12 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from linuxeasyconfig.core.module_manager import ModuleManager
-from linuxeasyconfig.core.registries import (
-    CapabilityRegistry,
-    FeatureRegistry,
-    LocalServiceRegistry,
-    ViewRegistry,
-)
+from linuxeasyconfig.core.registries import FeatureRegistry, ViewRegistry
 from linuxeasyconfig.core.view_renderer import ViewRenderError, ViewRenderer
 
 
@@ -31,11 +26,13 @@ class MainWindow(QMainWindow):
         self,
         feature_registry: FeatureRegistry,
         view_registry: ViewRegistry,
+        feature_module_paths: dict[str, Path],
     ) -> None:
         super().__init__()
 
         self._feature_registry = feature_registry
         self._view_registry = view_registry
+        self._feature_module_paths = feature_module_paths
         self._renderer = ViewRenderer()
         self._view_indexes: dict[str, int] = {}
 
@@ -101,10 +98,42 @@ class MainWindow(QMainWindow):
             )
             item.setToolTip(feature.description)
 
-            if feature.icon:
-                item.setIcon(QIcon.fromTheme(feature.icon))
+            icon = self._resolve_feature_icon(
+                feature.id,
+                feature.icon,
+            )
+            if not icon.isNull():
+                item.setIcon(icon)
 
             self._feature_list.addItem(item)
+
+    def _resolve_feature_icon(
+        self,
+        feature_id: str,
+        theme_icon_name: str,
+    ) -> QIcon:
+        module_path = self._feature_module_paths.get(feature_id)
+
+        if module_path is not None:
+            for filename in (
+                "icon.svg",
+                "icon.png",
+                "icon.webp",
+                "icon.jpg",
+                "icon.jpeg",
+            ):
+                icon_path = module_path / filename
+                if icon_path.is_file():
+                    icon = QIcon(str(icon_path))
+                    if not icon.isNull():
+                        return icon
+
+        if theme_icon_name:
+            themed = QIcon.fromTheme(theme_icon_name)
+            if not themed.isNull():
+                return themed
+
+        return QIcon.fromTheme("applications-system")
 
     def _on_feature_selected(
         self,
@@ -174,13 +203,9 @@ def main() -> int:
 
     feature_registry = FeatureRegistry()
     view_registry = ViewRegistry()
-    capability_registry = CapabilityRegistry()
-    service_registry = LocalServiceRegistry()
     module_manager = ModuleManager(
         feature_registry,
         view_registry,
-        capability_registry,
-        service_registry,
     )
 
     modules_directory = (
@@ -193,6 +218,7 @@ def main() -> int:
     window = MainWindow(
         feature_registry,
         view_registry,
+        module_manager.feature_module_paths(),
     )
     window.show()
 
