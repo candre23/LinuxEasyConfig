@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import secrets
+from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
@@ -9,6 +11,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -31,6 +34,7 @@ from linuxeasyconfig.core.module_api import ModuleContext
 from linuxeasyconfig.core.privileged.runner import PrivilegedRunner
 from linuxeasyconfig.core.privileged.task import PrivilegedTask
 
+from .presets import DockerPreset, default_values
 from .repository import DockerRepository
 
 
@@ -78,6 +82,8 @@ class DockerView(QWidget):
         self._active_worker: _Worker | None = None
         self._pool = QThreadPool(self)
         self._pool.setMaxThreadCount(1)
+        self._loaded_preset: DockerPreset | None = None
+        self._preset_field_widgets: dict[str, QWidget] = {}
 
         heading = QLabel("Docker")
         heading.setStyleSheet(
@@ -109,8 +115,13 @@ class DockerView(QWidget):
             "Containers",
         )
         self._tabs.addTab(
-            self._build_create(),
-            "Create Container",
+            self._build_presets(),
+            "Presets",
+        )
+        self._create_tab = self._build_create()
+        self._tabs.addTab(
+            self._create_tab,
+            "Container Builder",
         )
 
         layout = QVBoxLayout(self)
@@ -224,7 +235,7 @@ class DockerView(QWidget):
         container = QWidget()
         layout = QVBoxLayout(container)
 
-        self._table = QTableWidget(0, 6)
+        self._table = QTableWidget(0, 8)
         self._table.setHorizontalHeaderLabels(
             [
                 "Name",
@@ -232,6 +243,8 @@ class DockerView(QWidget):
                 "State",
                 "Status",
                 "Published Ports",
+                "Available from This Computer",
+                "Available from Local Network",
                 "ID",
             ]
         )
@@ -248,8 +261,10 @@ class DockerView(QWidget):
         self._table.setColumnWidth(1, 170)
         self._table.setColumnWidth(2, 90)
         self._table.setColumnWidth(3, 180)
-        self._table.setColumnWidth(4, 260)
-        self._table.setColumnWidth(5, 120)
+        self._table.setColumnWidth(4, 240)
+        self._table.setColumnWidth(5, 240)
+        self._table.setColumnWidth(6, 240)
+        self._table.setColumnWidth(7, 120)
         self._table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows
         )
@@ -295,6 +310,85 @@ class DockerView(QWidget):
 
         layout.addWidget(self._table, 1)
         layout.addLayout(buttons)
+        return container
+
+    def _build_presets(self) -> QWidget:
+        container = QWidget()
+        layout = QVBoxLayout(container)
+
+        explanation = QLabel(
+            "Presets provide tested settings for Docker images "
+            "and multi-container applications. Imported presets "
+            "can create containers, networks, volumes, and files; "
+            "only import presets from sources you trust."
+        )
+        explanation.setWordWrap(True)
+
+        self._presets_table = QTableWidget(0, 4)
+        self._presets_table.setHorizontalHeaderLabels(
+            [
+                "Name",
+                "Type",
+                "Source",
+                "Description",
+            ]
+        )
+        preset_header = self._presets_table.horizontalHeader()
+        preset_header.setSectionResizeMode(
+            QHeaderView.ResizeMode.Interactive
+        )
+        preset_header.setSectionResizeMode(
+            3,
+            QHeaderView.ResizeMode.Stretch,
+        )
+        self._presets_table.setColumnWidth(0, 180)
+        self._presets_table.setColumnWidth(1, 140)
+        self._presets_table.setColumnWidth(2, 150)
+        self._presets_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self._presets_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self._presets_table.setWordWrap(True)
+        self._presets_table.itemSelectionChanged.connect(
+            self._update_preset_buttons
+        )
+
+        self._import_preset_button = QPushButton(
+            "Import .lecdock Preset"
+        )
+        self._import_preset_button.clicked.connect(
+            self._import_preset
+        )
+
+        refresh = QPushButton("Refresh Presets")
+        refresh.clicked.connect(
+            self._refresh_presets
+        )
+
+        self._send_preset_button = QPushButton(
+            "Send to Container Builder"
+        )
+        self._send_preset_button.clicked.connect(
+            self._send_selected_preset
+        )
+
+        buttons = QHBoxLayout()
+        buttons.addWidget(
+            self._import_preset_button
+        )
+        buttons.addWidget(refresh)
+        buttons.addStretch()
+        buttons.addWidget(
+            self._send_preset_button
+        )
+
+        layout.addWidget(explanation)
+        layout.addWidget(self._presets_table, 1)
+        layout.addLayout(buttons)
+
+        self._update_preset_buttons()
         return container
 
     def _build_create(self) -> QWidget:
@@ -409,7 +503,27 @@ class DockerView(QWidget):
             "Require Caddy login"
         )
 
+        self._preset_builder_group = QGroupBox(
+            "Application Preset"
+        )
+        self._preset_builder_layout = QFormLayout(
+            self._preset_builder_group
+        )
+        self._preset_builder_group.setVisible(False)
+
+        clear_preset = QPushButton(
+            "Clear Loaded Preset"
+        )
+        clear_preset.clicked.connect(
+            self._clear_loaded_preset
+        )
+        self._preset_builder_layout.addRow(
+            "",
+            clear_preset,
+        )
+
         group = QGroupBox("Container Settings")
+        self._container_group = group
         form = QFormLayout(group)
         form.addRow("Container name:", self._name)
         form.addRow("Image:", self._image)
@@ -454,17 +568,615 @@ class DockerView(QWidget):
         )
         form.addRow("", self._proxy_login)
 
-        create = QPushButton(
+        self._create_button = QPushButton(
             "Pull Image and Create Container"
         )
-        create.clicked.connect(self._create_container)
+        self._create_button.clicked.connect(
+            self._create_container
+        )
 
         layout.addWidget(note)
+        layout.addWidget(
+            self._preset_builder_group
+        )
         layout.addWidget(group)
-        layout.addWidget(create)
+        layout.addWidget(self._create_button)
         layout.addStretch()
         self._access_scope_changed()
         return container
+
+    def _refresh_presets(self) -> None:
+        if not hasattr(self, "_presets_table"):
+            return
+
+        presets = self._repository.presets()
+        self._presets_table.setRowCount(0)
+
+        for preset in presets:
+            row = self._presets_table.rowCount()
+            self._presets_table.insertRow(row)
+
+            values = (
+                preset.name,
+                (
+                    "Application stack"
+                    if preset.preset_type == "compose"
+                    else "Single container"
+                ),
+                preset.source,
+                preset.description,
+            )
+
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setToolTip(value)
+                item.setData(
+                    Qt.ItemDataRole.UserRole,
+                    preset.preset_id,
+                )
+                self._presets_table.setItem(
+                    row,
+                    column,
+                    item,
+                )
+
+        self._presets_table.resizeRowsToContents()
+        self._update_preset_buttons()
+
+    def _update_preset_buttons(self) -> None:
+        selected = (
+            hasattr(self, "_presets_table")
+            and self._presets_table.currentRow() >= 0
+        )
+
+        if hasattr(self, "_send_preset_button"):
+            self._send_preset_button.setEnabled(selected)
+
+    def _selected_preset(self) -> DockerPreset | None:
+        row = self._presets_table.currentRow()
+
+        if row < 0:
+            return None
+
+        item = self._presets_table.item(row, 0)
+
+        if item is None:
+            return None
+
+        preset_id = str(
+            item.data(Qt.ItemDataRole.UserRole)
+        )
+
+        return next(
+            (
+                preset
+                for preset in self._repository.presets()
+                if preset.preset_id == preset_id
+            ),
+            None,
+        )
+
+    def _import_preset(self) -> None:
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import Docker Preset",
+            str(Path.home()),
+            "LEC Docker Presets (*.lecdock)",
+        )
+
+        if not filename:
+            return
+
+        try:
+            destination = self._repository.import_preset(
+                Path(filename)
+            )
+        except Exception as exc:
+            _show_text(
+                self,
+                "Preset Import Failed",
+                str(exc),
+            )
+            return
+
+        QMessageBox.information(
+            self,
+            "Preset Imported",
+            (
+                "The Docker preset was imported to:\n"
+                f"{destination}"
+            ),
+        )
+        self._refresh_presets()
+
+    def _send_selected_preset(self) -> None:
+        preset = self._selected_preset()
+
+        if preset is None:
+            return
+
+        if preset.preset_type == "container":
+            self._apply_container_preset(preset)
+        else:
+            self._load_application_preset(preset)
+
+        self._tabs.setCurrentWidget(
+            self._create_tab
+        )
+
+    def _apply_container_preset(
+        self,
+        preset: DockerPreset,
+    ) -> None:
+        values = default_values(preset)
+        container = preset.data["container"]
+
+        def rendered(value: Any) -> str:
+            result = str(value)
+
+            for key, replacement in values.items():
+                result = result.replace(
+                    "{{" + key + "}}",
+                    str(replacement),
+                )
+
+            return result
+
+        self._clear_loaded_preset()
+        self._name.setText(
+            rendered(
+                container.get(
+                    "name",
+                    values.get(
+                        "container_name",
+                        "",
+                    ),
+                )
+            )
+        )
+        self._image.setText(
+            rendered(container["image"])
+        )
+        self._host_port.setValue(
+            int(
+                values.get(
+                    "host_port",
+                    container.get(
+                        "host_port",
+                        0,
+                    ),
+                )
+            )
+        )
+        self._container_port.setValue(
+            int(
+                container.get(
+                    "container_port",
+                    0,
+                )
+            )
+        )
+        self._host_path.setText(
+            rendered(
+                container.get(
+                    "host_path",
+                    "",
+                )
+            )
+        )
+        self._container_path.setText(
+            rendered(
+                container.get(
+                    "container_path",
+                    "",
+                )
+            )
+        )
+        self._environment.setPlainText(
+            rendered(
+                container.get(
+                    "environment",
+                    "",
+                )
+            )
+        )
+
+    def _load_application_preset(
+        self,
+        preset: DockerPreset,
+    ) -> None:
+        self._loaded_preset = preset
+        self._preset_field_widgets.clear()
+
+        while self._preset_builder_layout.rowCount() > 0:
+            self._preset_builder_layout.removeRow(0)
+
+        heading = QLabel(preset.description)
+        heading.setWordWrap(True)
+        self._preset_builder_layout.addRow(
+            "",
+            heading,
+        )
+
+        for field in preset.data["fields"]:
+            field_id = str(field["id"])
+            field_type = str(
+                field.get("type", "text")
+            )
+            default = field.get("default", "")
+
+            if field_type in {"integer", "port"}:
+                widget = QSpinBox()
+                widget.setRange(
+                    1 if field_type == "port" else 0,
+                    65535
+                    if field_type == "port"
+                    else 2147483647,
+                )
+                widget.setValue(int(default or 0))
+            elif field_type == "boolean":
+                widget = QCheckBox()
+                widget.setChecked(bool(default))
+            elif field_type == "choice":
+                widget = QComboBox()
+
+                for choice in field.get(
+                    "choices",
+                    [],
+                ):
+                    widget.addItem(
+                        str(choice.get("label", "")),
+                        str(choice.get("value", "")),
+                    )
+
+                index = widget.findData(str(default))
+                widget.setCurrentIndex(
+                    max(0, index)
+                )
+            else:
+                widget = QLineEdit()
+
+                if field_type == "password":
+                    widget.setEchoMode(
+                        QLineEdit.EchoMode.Password
+                    )
+
+                if field.get("generate") == "password":
+                    default = secrets.token_urlsafe(24)
+
+                widget.setText(str(default))
+
+                placeholder = str(
+                    field.get("placeholder", "")
+                )
+
+                if placeholder:
+                    widget.setPlaceholderText(
+                        placeholder
+                    )
+
+            help_text = str(
+                field.get("help", "")
+            )
+
+            if help_text:
+                widget.setToolTip(help_text)
+
+            self._preset_field_widgets[
+                field_id
+            ] = widget
+            self._preset_builder_layout.addRow(
+                str(field["label"]) + ":",
+                widget,
+            )
+
+            if (
+                field_id == "application_name"
+                and isinstance(widget, QLineEdit)
+            ):
+                widget.textChanged.connect(
+                    self._update_preset_deploy_button
+                )
+            elif (
+                field_id == "access_scope"
+                and isinstance(widget, QComboBox)
+            ):
+                widget.currentIndexChanged.connect(
+                    self._preset_access_scope_changed
+                )
+            elif (
+                field_id == "allow_firewall"
+                and isinstance(widget, QCheckBox)
+            ):
+                widget.toggled.connect(
+                    self._preset_firewall_toggled
+                )
+            elif (
+                field_id == "publish_reverse_proxy"
+                and isinstance(widget, QCheckBox)
+            ):
+                widget.toggled.connect(
+                    self._preset_proxy_toggled
+                )
+
+        clear_preset = QPushButton(
+            "Clear Loaded Preset"
+        )
+        clear_preset.clicked.connect(
+            self._clear_loaded_preset
+        )
+        self._preset_builder_layout.addRow(
+            "",
+            clear_preset,
+        )
+
+        self._preset_builder_group.setTitle(
+            "Application Preset: "
+            + preset.name
+        )
+        self._preset_builder_group.setVisible(True)
+        self._container_group.setVisible(False)
+        self._synchronize_preset_network_controls()
+        self._update_preset_deploy_button()
+
+    def _preset_access_scope_changed(self) -> None:
+        self._synchronize_preset_network_controls()
+
+    def _preset_firewall_toggled(
+        self,
+        checked: bool,
+    ) -> None:
+        if not checked:
+            return
+
+        scope = self._preset_field_widgets.get(
+            "access_scope"
+        )
+
+        if isinstance(scope, QComboBox):
+            index = scope.findData(
+                "local_network"
+            )
+
+            if index >= 0:
+                scope.setCurrentIndex(index)
+
+        proxy = self._preset_field_widgets.get(
+            "publish_reverse_proxy"
+        )
+
+        if isinstance(proxy, QCheckBox):
+            proxy.setChecked(False)
+
+        self._synchronize_preset_network_controls()
+
+    def _preset_proxy_toggled(
+        self,
+        checked: bool,
+    ) -> None:
+        scope = self._preset_field_widgets.get(
+            "access_scope"
+        )
+        firewall = self._preset_field_widgets.get(
+            "allow_firewall"
+        )
+
+        if checked:
+            if isinstance(scope, QComboBox):
+                index = scope.findData(
+                    "localhost"
+                )
+
+                if index >= 0:
+                    scope.setCurrentIndex(index)
+
+            if isinstance(firewall, QCheckBox):
+                firewall.setChecked(False)
+
+        self._synchronize_preset_network_controls()
+
+    def _synchronize_preset_network_controls(
+        self,
+    ) -> None:
+        scope = self._preset_field_widgets.get(
+            "access_scope"
+        )
+        firewall = self._preset_field_widgets.get(
+            "allow_firewall"
+        )
+        proxy = self._preset_field_widgets.get(
+            "publish_reverse_proxy"
+        )
+        public_host = self._preset_field_widgets.get(
+            "public_host"
+        )
+        proxy_login = self._preset_field_widgets.get(
+            "proxy_login"
+        )
+
+        proxy_enabled = (
+            isinstance(proxy, QCheckBox)
+            and proxy.isChecked()
+        )
+
+        if isinstance(scope, QComboBox):
+            if proxy_enabled:
+                localhost_index = scope.findData(
+                    "localhost"
+                )
+
+                if (
+                    localhost_index >= 0
+                    and scope.currentIndex()
+                    != localhost_index
+                ):
+                    scope.setCurrentIndex(
+                        localhost_index
+                    )
+
+                scope.setEnabled(False)
+            else:
+                scope.setEnabled(True)
+
+        scope_value = (
+            scope.currentData()
+            if isinstance(scope, QComboBox)
+            else "localhost"
+        )
+
+        if isinstance(firewall, QCheckBox):
+            firewall_available = (
+                scope_value == "local_network"
+                and not proxy_enabled
+                and self._context is not None
+                and self._context.capability_registry.get(
+                    "firewall.allow_docker_service"
+                )
+                is not None
+            )
+
+            if not firewall_available:
+                firewall.setChecked(False)
+
+            firewall.setEnabled(
+                firewall_available
+            )
+
+        if isinstance(public_host, QLineEdit):
+            public_host.setEnabled(
+                proxy_enabled
+            )
+
+        if isinstance(proxy_login, QCheckBox):
+            if not proxy_enabled:
+                proxy_login.setChecked(False)
+
+            proxy_login.setEnabled(
+                proxy_enabled
+            )
+
+    def _update_preset_deploy_button(
+        self,
+        *_args: object,
+    ) -> None:
+        name_widget = self._preset_field_widgets.get(
+            "application_name"
+        )
+
+        name = (
+            name_widget.text().strip()
+            if isinstance(name_widget, QLineEdit)
+            else ""
+        )
+
+        if (
+            name
+            and self._repository.application_exists(
+                name
+            )
+        ):
+            self._create_button.setText(
+                "Modify and Redeploy Preset Application"
+            )
+        else:
+            self._create_button.setText(
+                "Deploy Preset Application"
+            )
+
+    def _clear_loaded_preset(self) -> None:
+        self._loaded_preset = None
+        self._preset_field_widgets.clear()
+
+        if hasattr(
+            self,
+            "_preset_builder_group",
+        ):
+            self._preset_builder_group.setVisible(False)
+            self._container_group.setVisible(True)
+            self._create_button.setText(
+                "Pull Image and Create Container"
+            )
+
+    def _preset_values(self) -> dict[str, Any]:
+        values: dict[str, Any] = {}
+
+        for field_id, widget in (
+            self._preset_field_widgets.items()
+        ):
+            if isinstance(widget, QLineEdit):
+                values[field_id] = widget.text()
+            elif isinstance(widget, QSpinBox):
+                values[field_id] = widget.value()
+            elif isinstance(widget, QCheckBox):
+                values[field_id] = widget.isChecked()
+            elif isinstance(widget, QComboBox):
+                values[field_id] = (
+                    widget.currentData()
+                )
+
+        return values
+
+    def _container_access_addresses(
+        self,
+        container_name: str,
+        published_ports: str,
+    ) -> tuple[str, str]:
+        managed = next(
+            (
+                item
+                for item in self._repository.managed_containers()
+                if (
+                    item.name == container_name
+                    or container_name == f"{item.name}-web"
+                )
+            ),
+            None,
+        )
+
+        if managed is None or managed.host_port <= 0:
+            return "", ""
+
+        scheme = (
+            "https"
+            if managed.service_protocol == "https"
+            else "http"
+            if managed.service_protocol == "http"
+            else managed.service_protocol
+        )
+        port = managed.host_port
+
+        if managed.access_scope == "localhost":
+            local = f"{scheme}://127.0.0.1:{port}"
+            return local, "Not directly available"
+
+        if managed.access_scope == "local_network":
+            address = managed.host_address.strip()
+
+            if not address:
+                address = (
+                    self._repository.primary_local_address()
+                )
+
+            if not address:
+                return "", ""
+
+            url = f"{scheme}://{address}:{port}"
+            return url, url
+
+        if managed.access_scope == "all_networks":
+            address = (
+                self._repository.primary_local_address()
+            )
+
+            local = f"{scheme}://127.0.0.1:{port}"
+            network = (
+                f"{scheme}://{address}:{port}"
+                if address
+                else "Available on all interfaces"
+            )
+            return local, network
+
+        return "", ""
 
     def reload(self) -> None:
         status = self._repository.status()
@@ -522,12 +1234,22 @@ class DockerView(QWidget):
             row = self._table.rowCount()
             self._table.insertRow(row)
 
+            (
+                local_address,
+                network_address,
+            ) = self._container_access_addresses(
+                item.name,
+                item.ports,
+            )
+
             values = (
                 item.name,
                 item.image,
                 item.state,
                 item.status,
                 item.ports,
+                local_address,
+                network_address,
                 item.container_id,
             )
 
@@ -541,6 +1263,7 @@ class DockerView(QWidget):
                 )
 
         self._table.resizeRowsToContents()
+        self._refresh_presets()
 
         firewall_capability = (
             self._context.capability_registry.get(
@@ -753,6 +1476,10 @@ class DockerView(QWidget):
         )
 
     def _create_container(self) -> None:
+        if self._loaded_preset is not None:
+            self._deploy_loaded_preset()
+            return
+
         tasks = [
             PrivilegedTask(
                 "docker.create_container",
@@ -884,6 +1611,232 @@ class DockerView(QWidget):
             tasks,
             "Container Created",
             timeout=1400,
+            long_operation=True,
+        )
+
+    def _deploy_loaded_preset(self) -> None:
+        preset = self._loaded_preset
+
+        if preset is None:
+            return
+
+        values = self._preset_values()
+        service = preset.data.get(
+            "service",
+            {},
+        )
+
+        if not isinstance(service, dict):
+            service = {}
+
+        application_name = str(
+            values.get(
+                "application_name",
+                preset.preset_id.rsplit(".", 1)[-1],
+            )
+        )
+        host_port = int(
+            values.get("host_port", 0)
+        )
+        access_scope = str(
+            values.get(
+                "access_scope",
+                "localhost",
+            )
+        )
+        publish_proxy = bool(
+            values.get(
+                "publish_reverse_proxy",
+                False,
+            )
+        )
+        allow_firewall = bool(
+            values.get(
+                "allow_firewall",
+                False,
+            )
+        )
+        public_host = str(
+            values.get("public_host", "")
+        ).strip()
+
+        if publish_proxy:
+            access_scope = "localhost"
+            values["access_scope"] = "localhost"
+
+            if not public_host:
+                QMessageBox.warning(
+                    self,
+                    "Public Hostname Required",
+                    (
+                        "Enter the public hostname that Caddy "
+                        "should use for this application."
+                    ),
+                )
+                return
+
+        if access_scope == "all_networks":
+            response = QMessageBox.warning(
+                self,
+                "All Networks Selected",
+                (
+                    "This application will publish its web port "
+                    "on every network interface and may become "
+                    "reachable from the internet.\n\n"
+                    "Continue?"
+                ),
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+
+            if response != QMessageBox.StandardButton.Yes:
+                return
+
+        existing_application = (
+            self._repository.application_exists(
+                application_name
+            )
+        )
+
+        if existing_application:
+            response = QMessageBox.question(
+                self,
+                "Modify and Redeploy Application",
+                (
+                    f"Update and redeploy {application_name}?\n\n"
+                    "Existing Docker volumes and the stored "
+                    "database password will be preserved."
+                ),
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+
+            if response != QMessageBox.StandardButton.Yes:
+                return
+
+        tasks = [
+            PrivilegedTask(
+                "docker.deploy_preset",
+                {
+                    "preset": preset.data,
+                    "values": values,
+                },
+            )
+        ]
+
+        if (
+            access_scope == "local_network"
+            and allow_firewall
+        ):
+            capability = (
+                self._context.capability_registry.get(
+                    "firewall.allow_docker_service"
+                )
+                if self._context is not None
+                else None
+            )
+
+            if (
+                capability is not None
+                and capability.privileged_task_id
+            ):
+                tasks.append(
+                    PrivilegedTask(
+                        capability.privileged_task_id,
+                        {
+                            "container": application_name,
+                            "host_port": host_port,
+                            "container_port": int(
+                                service.get(
+                                    "container_port",
+                                    0,
+                                )
+                            ),
+                            "protocol": str(
+                                service.get(
+                                    "transport_protocol",
+                                    "tcp",
+                                )
+                            ),
+                            "sources": (
+                                self._repository.local_networks()
+                            ),
+                            "comment": (
+                                "LEC Docker preset "
+                                + application_name
+                            ),
+                        },
+                    )
+                )
+
+        if publish_proxy:
+            capability = (
+                self._context.capability_registry.get(
+                    "reverse_proxy.create_http_proxy"
+                )
+                if self._context is not None
+                else None
+            )
+
+            if (
+                capability is None
+                or not capability.privileged_task_id
+            ):
+                QMessageBox.warning(
+                    self,
+                    "Reverse Proxy Unavailable",
+                    (
+                        "The Reverse Proxy module is not "
+                        "available. Disable reverse proxy "
+                        "publication or install that module first."
+                    ),
+                )
+                return
+
+            tasks.append(
+                PrivilegedTask(
+                    capability.privileged_task_id,
+                    {
+                        "original_name": "",
+                        "data": {
+                            "name": (
+                                "Docker "
+                                + application_name
+                            ),
+                            "public_host": public_host,
+                            "route_type": "host",
+                            "path": "",
+                            "strip_path": True,
+                            "credential_username": "",
+                            "backend_host": "127.0.0.1",
+                            "backend_port": host_port,
+                            "backend_https": (
+                                str(
+                                    service.get(
+                                        "protocol",
+                                        "http",
+                                    )
+                                )
+                                == "https"
+                            ),
+                            "require_login": bool(
+                                values.get(
+                                    "proxy_login",
+                                    False,
+                                )
+                            ),
+                            "enabled": True,
+                        },
+                    },
+                )
+            )
+
+        self._run_sequence(
+            tasks,
+            preset.name + " Deployed",
+            timeout=2000,
             long_operation=True,
         )
 

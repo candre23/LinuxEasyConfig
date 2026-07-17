@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .presets import DockerPreset, import_preset, load_presets
 from .storage import ManagedContainer, load_managed_containers
 
 
@@ -199,6 +200,30 @@ class DockerRepository:
 
     def caddy_installed(self) -> bool:
         return shutil.which("caddy") is not None
+
+    def presets(self) -> list[DockerPreset]:
+        return load_presets()
+
+    def import_preset(self, path: Path) -> Path:
+        return import_preset(path)
+
+    def application_exists(self, name: str) -> bool:
+        name = name.strip()
+
+        if not name:
+            return False
+
+        if any(
+            item.name == name
+            for item in load_managed_containers()
+        ):
+            return True
+
+        return (
+            Path("/opt/linuxeasyconfig/docker/apps")
+            / name
+            / "compose.yaml"
+        ).is_file()
 
     def managed_containers(self) -> list[ManagedContainer]:
         return load_managed_containers()

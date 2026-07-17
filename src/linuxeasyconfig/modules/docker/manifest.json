@@ -2,8 +2,8 @@
   "format_version": 1,
   "id": "org.linuxeasyconfig.docker",
   "name": "Docker",
-  "version": "0.2.0",
-  "description": "Install Docker and manage common container operations.",
+  "version": "0.3.0",
+  "description": "Install Docker, manage containers, and deploy reusable application presets.",
   "module_type": "extended",
   "entry_point": "module:DockerModule"
 }

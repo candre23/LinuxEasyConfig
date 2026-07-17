@@ -88,7 +88,7 @@ class ReverseProxyView(QWidget):
         self._editing_rule = ""
         self._editing_credential = ""
 
-        heading = QLabel("Reverse Proxy")
+        heading = QLabel("Reverse Proxy Management")
         heading.setStyleSheet(
             "font-size: 24px; font-weight: bold;"
         )
@@ -288,7 +288,15 @@ class ReverseProxyView(QWidget):
         )
 
         self._rule_name = QLineEdit()
-        self._public_host = QLineEdit()
+        self._public_host = QComboBox()
+        self._public_host.setEditable(True)
+        self._public_host.setInsertPolicy(
+            QComboBox.InsertPolicy.NoInsert
+        )
+        self._public_host.setToolTip(
+            "Select a hostname managed by the Dynamic DNS module, "
+            "or type any public hostname manually."
+        )
         self._route_type = QComboBox()
         self._route_type.addItem(
             "Entire public address",
@@ -679,11 +687,23 @@ class ReverseProxyView(QWidget):
         self._reload_button.setEnabled(
             status.lec_setup_complete
         )
+        self._refresh_dynamic_dns_hostnames()
         self._refresh_credentials()
         self._refresh_rules()
         self._refresh_protection()
         self._refresh_bans()
         self._refresh_logs()
+
+    def _refresh_dynamic_dns_hostnames(self) -> None:
+        current = self._public_host.currentText().strip()
+        self._public_host.blockSignals(True)
+        self._public_host.clear()
+
+        for hostname in self._repository.dynamic_dns_hostnames():
+            self._public_host.addItem(hostname)
+
+        self._public_host.setCurrentText(current)
+        self._public_host.blockSignals(False)
 
     def _refresh_credentials(self) -> None:
         credentials = self._repository.credentials()
@@ -897,7 +917,7 @@ class ReverseProxyView(QWidget):
                 "original_name": self._editing_rule,
                 "data": {
                     "name": self._rule_name.text(),
-                    "public_host": self._public_host.text(),
+                    "public_host": self._public_host.currentText(),
                     "route_type": self._route_type.currentData(),
                     "path": self._rule_path.text(),
                     "strip_path": self._strip_path.isChecked(),
@@ -991,7 +1011,7 @@ class ReverseProxyView(QWidget):
         )
         self._editing_rule = rule.name
         self._rule_name.setText(rule.name)
-        self._public_host.setText(rule.public_host)
+        self._public_host.setCurrentText(rule.public_host)
         self._route_type.setCurrentIndex(
             self._route_type.findData(rule.route_type)
         )
@@ -1016,7 +1036,7 @@ class ReverseProxyView(QWidget):
     def _clear_rule_form(self) -> None:
         self._editing_rule = ""
         self._rule_name.clear()
-        self._public_host.clear()
+        self._public_host.setCurrentText("")
         self._route_type.setCurrentIndex(0)
         self._rule_path.clear()
         self._strip_path.setChecked(True)

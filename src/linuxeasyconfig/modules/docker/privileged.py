@@ -8,6 +8,7 @@ from .installer import (
     container_action,
     container_logs,
     create_container,
+    deploy_preset,
     install_docker,
     refresh_snapshot,
     remove_container,
@@ -155,6 +156,27 @@ def _create(arguments: dict[str, Any]) -> str:
     )
 
 
+
+def _deploy_preset(
+    arguments: dict[str, Any],
+) -> str:
+    preset = arguments.get("preset")
+    values = arguments.get("values")
+
+    if not isinstance(preset, dict):
+        raise ValueError(
+            "Docker preset data is missing."
+        )
+    if not isinstance(values, dict):
+        raise ValueError(
+            "Docker preset values are missing."
+        )
+
+    return deploy_preset(
+        preset=preset,
+        values=values,
+    )
+
 def _logs(arguments: dict[str, Any]) -> str:
     lines = arguments.get("lines", 200)
 
@@ -179,5 +201,6 @@ PRIVILEGED_TASKS = {
     "docker.container_action": _container_action,
     "docker.remove_container": _remove,
     "docker.create_container": _create,
+    "docker.deploy_preset": _deploy_preset,
     "docker.container_logs": _logs,
 }

@@ -1,0 +1,9 @@
+{
+  "format_version": 1,
+  "id": "org.linuxeasyconfig.dynamic_dns",
+  "name": "Dynamic DNS",
+  "version": "0.1.0",
+  "description": "Manage dynamic DNS providers, hostnames, and automatic IP updates.",
+  "module_type": "extended",
+  "entry_point": "module:DynamicDNSModule"
+}

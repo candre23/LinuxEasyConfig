@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from .presets import validate_preset
 from .storage import (
     ManagedContainer,
     remove_managed_container,
@@ -18,6 +19,9 @@ from .storage import (
 
 SNAPSHOT_PATH = Path(
     "/var/lib/linuxeasyconfig/docker/status.json"
+)
+APPLICATION_ROOT = Path(
+    "/opt/linuxeasyconfig/docker/apps"
 )
 
 _NAME_PATTERN = re.compile(
@@ -670,6 +674,440 @@ def container_logs(
         include_stderr=True,
     )
 
+
+
+def deploy_preset(
+    *,
+    preset: dict[str, Any],
+    values: dict[str, Any],
+) -> str:
+    validate_preset(preset)
+
+    if preset.get("type") != "compose":
+        raise ValueError(
+            "This preset does not define a Compose application."
+        )
+
+    normalized = _normalize_preset_values(
+        preset,
+        values,
+    )
+
+    application_name = str(
+        normalized.get("application_name", "")
+    ).strip()
+
+    if not _NAME_PATTERN.fullmatch(application_name):
+        raise ValueError(
+            "Application names may contain letters, numbers, "
+            "periods, underscores, and hyphens."
+        )
+
+    access_scope = str(
+        normalized.get("access_scope", "localhost")
+    )
+
+    if access_scope == "localhost":
+        bind_address = "127.0.0.1"
+    elif access_scope == "local_network":
+        bind_address = _primary_local_address()
+        if not bind_address:
+            raise RuntimeError(
+                "LEC could not determine this computer's "
+                "local-network address."
+            )
+    elif access_scope == "all_networks":
+        bind_address = "0.0.0.0"
+    else:
+        raise ValueError(
+            "The selected network access scope is invalid."
+        )
+
+    normalized["bind_address"] = bind_address
+
+    compose = preset["compose"]
+    template = str(compose["template"])
+    rendered = _render_preset_template(
+        template,
+        normalized,
+    )
+
+    application_directory = (
+        APPLICATION_ROOT / application_name
+    )
+    application_directory.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    os.chmod(application_directory, 0o750)
+
+    compose_path = (
+        application_directory / "compose.yaml"
+    )
+    environment_path = (
+        application_directory / ".env"
+    )
+
+    compose_path.write_text(
+        rendered.rstrip() + "\n",
+        encoding="utf-8",
+    )
+    os.chmod(compose_path, 0o640)
+
+    environment_values = compose.get(
+        "environment",
+        [],
+    )
+    environment_lines: list[str] = []
+    existing_environment = _read_environment_file(
+        environment_path
+    )
+
+    if not isinstance(environment_values, list):
+        raise ValueError(
+            "Preset Compose environment definition is invalid."
+        )
+
+    for key in environment_values:
+        key_text = str(key)
+        if key_text not in normalized:
+            raise ValueError(
+                f"Preset value {key_text!r} is missing."
+            )
+
+        environment_key = key_text.upper()
+        value = str(
+            existing_environment.get(
+                environment_key,
+                normalized[key_text],
+            )
+        )
+        normalized[key_text] = value
+
+        if "\n" in value or "\r" in value:
+            raise ValueError(
+                f"Preset value {key_text!r} contains a line break."
+            )
+
+        environment_lines.append(
+            f"{environment_key}={value}"
+        )
+
+    environment_path.write_text(
+        "\n".join(environment_lines) + "\n",
+        encoding="utf-8",
+    )
+    os.chmod(environment_path, 0o600)
+
+    initialization = compose.get("initialization")
+
+    if initialization == "guacamole_postgresql_schema":
+        _initialize_guacamole_schema(
+            application_directory=application_directory,
+            image=str(
+                compose.get(
+                    "initialization_image",
+                    "guacamole/guacamole:1.6.0",
+                )
+            ),
+        )
+    elif initialization not in {None, ""}:
+        raise ValueError(
+            "This preset requests an unsupported "
+            "initialization method."
+        )
+
+    _run(
+        [
+            "docker",
+            "compose",
+            "--project-name",
+            application_name,
+            "--env-file",
+            str(environment_path),
+            "--file",
+            str(compose_path),
+            "up",
+            "--detach",
+        ],
+        timeout=1800,
+    )
+
+    service = preset.get("service", {})
+
+    if isinstance(service, dict):
+        host_port = int(
+            normalized.get("host_port", 0)
+        )
+        container_port = int(
+            service.get("container_port", 0)
+        )
+        service_protocol = str(
+            service.get("protocol", "http")
+        )
+
+        if host_port and container_port:
+            upsert_managed_container(
+                ManagedContainer(
+                    name=application_name,
+                    image=(
+                        "Application preset: "
+                        + str(preset["name"])
+                    ),
+                    host_address=bind_address,
+                    host_port=host_port,
+                    container_port=container_port,
+                    protocol=str(
+                        service.get(
+                            "transport_protocol",
+                            "tcp",
+                        )
+                    ),
+                    access_scope=access_scope,
+                    service_protocol=service_protocol,
+                    reverse_proxy_compatible=bool(
+                        service.get(
+                            "reverse_proxy_compatible",
+                            False,
+                        )
+                    ),
+                    public_host=str(
+                        normalized.get(
+                            "public_host",
+                            "",
+                        )
+                    ),
+                )
+            )
+
+    refresh_snapshot()
+
+    return (
+        f"{preset['name']} was deployed successfully "
+        f"as {application_name}."
+    )
+
+
+
+def _read_environment_file(
+    path: Path,
+) -> dict[str, str]:
+    if not path.is_file():
+        return {}
+
+    result: dict[str, str] = {}
+
+    try:
+        lines = path.read_text(
+            encoding="utf-8",
+            errors="replace",
+        ).splitlines()
+    except OSError:
+        return {}
+
+    for raw_line in lines:
+        line = raw_line.strip()
+
+        if (
+            not line
+            or line.startswith("#")
+            or "=" not in line
+        ):
+            continue
+
+        key, _, value = line.partition("=")
+        key = key.strip()
+
+        if key:
+            result[key] = value
+
+    return result
+
+def _normalize_preset_values(
+    preset: dict[str, Any],
+    values: dict[str, Any],
+) -> dict[str, Any]:
+    normalized: dict[str, Any] = {}
+
+    for field in preset["fields"]:
+        field_id = str(field["id"])
+        field_type = str(
+            field.get("type", "text")
+        )
+        value = values.get(
+            field_id,
+            field.get("default", ""),
+        )
+
+        if field_type in {"integer", "port"}:
+            try:
+                number = int(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"{field['label']} must be a number."
+                ) from exc
+
+            if field_type == "port" and not 1 <= number <= 65535:
+                raise ValueError(
+                    f"{field['label']} must be between "
+                    "1 and 65535."
+                )
+
+            normalized[field_id] = number
+        elif field_type == "boolean":
+            normalized[field_id] = bool(value)
+        elif field_type == "choice":
+            choices = field.get("choices", [])
+            allowed = {
+                str(item.get("value", ""))
+                for item in choices
+                if isinstance(item, dict)
+            }
+
+            if str(value) not in allowed:
+                raise ValueError(
+                    f"{field['label']} has an invalid selection."
+                )
+
+            normalized[field_id] = str(value)
+        else:
+            normalized[field_id] = str(value).strip()
+
+        if field.get("required") and normalized[field_id] in {
+            "",
+            None,
+        }:
+            raise ValueError(
+                f"{field['label']} is required."
+            )
+
+    return normalized
+
+
+def _render_preset_template(
+    template: str,
+    values: dict[str, Any],
+) -> str:
+    pattern = re.compile(
+        r"\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}"
+    )
+    missing: set[str] = set()
+
+    def replacement(match: re.Match[str]) -> str:
+        key = match.group(1)
+
+        if key not in values:
+            missing.add(key)
+            return match.group(0)
+
+        value = values[key]
+
+        if isinstance(value, bool):
+            return "true" if value else "false"
+
+        return str(value)
+
+    rendered = pattern.sub(
+        replacement,
+        template,
+    )
+
+    if missing:
+        raise ValueError(
+            "Preset template values are missing: "
+            + ", ".join(sorted(missing))
+        )
+
+    return rendered
+
+
+def _initialize_guacamole_schema(
+    *,
+    application_directory: Path,
+    image: str,
+) -> None:
+    schema_path = (
+        application_directory / "initdb.sql"
+    )
+
+    if schema_path.is_file() and schema_path.stat().st_size > 0:
+        return
+
+    result = subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            image,
+            "/opt/guacamole/bin/initdb.sh",
+            "--postgresql",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=1200,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            result.stderr.strip()
+            or result.stdout.strip()
+            or "Guacamole database initialization failed."
+        )
+
+    if not result.stdout.strip():
+        raise RuntimeError(
+            "Guacamole produced an empty database schema."
+        )
+
+    temporary = schema_path.with_suffix(".tmp")
+    temporary.write_text(
+        result.stdout,
+        encoding="utf-8",
+    )
+    os.chmod(temporary, 0o644)
+    temporary.replace(schema_path)
+    os.chmod(schema_path, 0o644)
+
+
+def _primary_local_address() -> str:
+    result = subprocess.run(
+        [
+            "ip",
+            "-j",
+            "-4",
+            "route",
+            "get",
+            "1.1.1.1",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+
+    try:
+        values = json.loads(
+            result.stdout or "[]"
+        )
+    except json.JSONDecodeError:
+        return ""
+
+    if not isinstance(values, list):
+        return ""
+
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+
+        address = str(
+            item.get("prefsrc", "")
+        ).strip()
+
+        if address:
+            return address
+
+    return ""
 
 def refresh_snapshot() -> str:
     installed = (

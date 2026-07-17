@@ -3,7 +3,8 @@ from __future__ import annotations
 import pwd
 from typing import Any
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
+from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QUrl, Signal
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -441,20 +442,95 @@ class RemoteAccessView(QWidget):
         )
 
         note = QLabel(
-            "Guacamole must be installed through the Docker module."
+            "Guacamole applications, users, and remote-access "
+            "connections are managed in the Guacamole web interface. "
+            "LEC provides installation through Docker and reports "
+            "status and access information here."
         )
         note.setWordWrap(True)
 
-        future = QLabel(
-            "After the Docker module installs Guacamole, this tab "
-            "will configure its SSH, VNC, and RDP connections and "
-            "offer secure publication through the Reverse Proxy module."
+        self._guacamole_status = QLabel()
+        self._guacamole_status.setWordWrap(True)
+
+        self._guacamole_application = QLabel()
+        self._guacamole_scope = QLabel()
+        self._guacamole_local_url = QLabel()
+        self._guacamole_local_url.setTextInteractionFlags(
+            self._guacamole_local_url.textInteractionFlags()
+            | Qt.TextInteractionFlag.TextSelectableByMouse
         )
-        future.setWordWrap(True)
+        self._guacamole_network_url = QLabel()
+        self._guacamole_network_url.setTextInteractionFlags(
+            self._guacamole_network_url.textInteractionFlags()
+            | Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self._guacamole_proxy_url = QLabel()
+        self._guacamole_proxy_url.setTextInteractionFlags(
+            self._guacamole_proxy_url.textInteractionFlags()
+            | Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+
+        status_group = QGroupBox("Status")
+        status_form = QFormLayout(status_group)
+        status_form.addRow(
+            "Application:",
+            self._guacamole_application,
+        )
+        status_form.addRow(
+            "Network access:",
+            self._guacamole_scope,
+        )
+        status_form.addRow(
+            "From this computer:",
+            self._guacamole_local_url,
+        )
+        status_form.addRow(
+            "From the local network:",
+            self._guacamole_network_url,
+        )
+        status_form.addRow(
+            "Reverse proxy address:",
+            self._guacamole_proxy_url,
+        )
+
+        self._guacamole_warnings = QLabel()
+        self._guacamole_warnings.setWordWrap(True)
+
+        warning_group = QGroupBox("Warnings and Reminders")
+        warning_layout = QVBoxLayout(warning_group)
+        warning_layout.addWidget(
+            self._guacamole_warnings
+        )
+
+        self._open_guacamole = QPushButton(
+            "Open Guacamole Web Interface"
+        )
+        self._open_guacamole.clicked.connect(
+            self._open_guacamole_webui
+        )
+
+        refresh = QPushButton(
+            "Refresh Guacamole Status"
+        )
+        refresh.clicked.connect(
+            self._reload_guacamole
+        )
+
+        buttons = QHBoxLayout()
+        buttons.addWidget(
+            self._open_guacamole
+        )
+        buttons.addWidget(refresh)
+        buttons.addStretch()
 
         layout.addWidget(heading)
         layout.addWidget(note)
-        layout.addWidget(future)
+        layout.addWidget(
+            self._guacamole_status
+        )
+        layout.addWidget(status_group)
+        layout.addWidget(warning_group)
+        layout.addLayout(buttons)
         layout.addStretch()
         return container
 
@@ -630,6 +706,7 @@ class RemoteAccessView(QWidget):
             )
 
         self._reload_vnc()
+        self._reload_guacamole()
 
         self._sessions.setRowCount(0)
         for session in snapshot.get("sessions", []):
@@ -646,6 +723,134 @@ class RemoteAccessView(QWidget):
                     QTableWidgetItem(str(session.get(key, ""))),
                 )
 
+
+    def _reload_guacamole(self) -> None:
+        status = self._repository.guacamole_status()
+        installed = bool(
+            status.get("installed", False)
+        )
+        running = bool(
+            status.get("running", False)
+        )
+
+        if not installed:
+            self._guacamole_status.setText(
+                "Apache Guacamole is not installed. "
+                "Install it from Docker → Presets."
+            )
+        elif running:
+            self._guacamole_status.setText(
+                "Apache Guacamole is installed and running."
+            )
+        else:
+            self._guacamole_status.setText(
+                "Apache Guacamole is installed, but its web "
+                "container is not running."
+            )
+
+        self._guacamole_application.setText(
+            str(
+                status.get(
+                    "application_name",
+                    "Not detected",
+                )
+            )
+            if installed
+            else "Not installed"
+        )
+
+        scope_labels = {
+            "localhost": (
+                "Local or reverse proxy only"
+            ),
+            "local_network": "Local network",
+            "all_networks": "All networks",
+        }
+
+        scope = str(
+            status.get("access_scope", "")
+        )
+        self._guacamole_scope.setText(
+            scope_labels.get(
+                scope,
+                "Not detected"
+                if installed
+                else "Not applicable",
+            )
+        )
+
+        local_url = str(
+            status.get("local_url", "")
+        )
+        network_url = str(
+            status.get("network_url", "")
+        )
+        proxy_url = str(
+            status.get("proxy_url", "")
+        )
+
+        self._guacamole_local_url.setText(
+            local_url or "Not available"
+        )
+        self._guacamole_network_url.setText(
+            network_url or "Not directly available"
+        )
+        self._guacamole_proxy_url.setText(
+            proxy_url or "Not configured"
+        )
+
+        warnings = status.get("warnings", [])
+        warning_lines = [
+            "• " + str(value)
+            for value in warnings
+        ] if isinstance(warnings, list) else []
+
+        self._guacamole_warnings.setText(
+            "\n".join(warning_lines)
+            if warning_lines
+            else "No warnings."
+        )
+
+        self._guacamole_open_url = (
+            proxy_url
+            or network_url
+            or local_url
+        )
+        self._open_guacamole.setEnabled(
+            running
+            and bool(self._guacamole_open_url)
+        )
+
+    def _open_guacamole_webui(self) -> None:
+        url = str(
+            getattr(
+                self,
+                "_guacamole_open_url",
+                "",
+            )
+        ).strip()
+
+        if not url:
+            QMessageBox.warning(
+                self,
+                "Guacamole Address Unavailable",
+                "No usable Guacamole web address was detected.",
+            )
+            return
+
+        opened = QDesktopServices.openUrl(
+            QUrl(url)
+        )
+
+        if not opened:
+            QMessageBox.warning(
+                self,
+                "Could Not Open Guacamole",
+                (
+                    "LEC could not open the Guacamole web "
+                    f"interface automatically. Use: {url}"
+                ),
+            )
 
     def _reload_vnc(self) -> None:
         snapshot = (

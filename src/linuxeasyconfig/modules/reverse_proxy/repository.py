@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 from dataclasses import dataclass
+import json
 from pathlib import Path
 
 from .storage import (
@@ -25,6 +26,9 @@ FAIL2BAN_JAIL = Path(
 )
 ACCESS_LOG = Path(
     "/var/log/caddy/lec-access.json"
+)
+DYNAMIC_DNS_HOSTNAMES = Path(
+    "/var/lib/linuxeasyconfig/dynamic-dns/hostnames.json"
 )
 
 
@@ -105,6 +109,41 @@ class ReverseProxyRepository:
 
     def protection_settings(self) -> ProtectionSettings:
         return load_settings()
+
+    def dynamic_dns_hostnames(self) -> list[str]:
+        if not DYNAMIC_DNS_HOSTNAMES.is_file():
+            return []
+
+        try:
+            value = json.loads(
+                DYNAMIC_DNS_HOSTNAMES.read_text(
+                    encoding="utf-8",
+                    errors="replace",
+                )
+            )
+        except (OSError, json.JSONDecodeError):
+            return []
+
+        if not isinstance(value, list):
+            return []
+
+        hostnames: set[str] = set()
+
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+
+            if not bool(item.get("enabled", True)):
+                continue
+
+            hostname = str(
+                item.get("hostname", "")
+            ).strip().lower().rstrip(".")
+
+            if hostname:
+                hostnames.add(hostname)
+
+        return sorted(hostnames)
 
     def recent_activity(
         self,
