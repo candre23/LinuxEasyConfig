@@ -7,6 +7,13 @@ import re
 import subprocess
 from pathlib import Path
 
+from linuxeasyconfig.core.config.managed import (
+    capture_external_text_files,
+    record_external_text_changes,
+)
+
+
+MODULE_ID = "org.linuxeasyconfig.firewall"
 
 _ALLOWED_ACTIONS = {
     "allow": "allow",
@@ -23,8 +30,16 @@ _ALLOWED_DIRECTIONS = {
     "incoming",
     "outgoing",
 }
+
 SNAPSHOT_PATH = Path(
     "/var/lib/linuxeasyconfig/firewall/status.json"
+)
+
+UFW_CONFIGURATION_PATHS = (
+    Path("/etc/ufw/user.rules"),
+    Path("/etc/ufw/user6.rules"),
+    Path("/etc/default/ufw"),
+    Path("/etc/ufw/ufw.conf"),
 )
 
 _RULE_PATTERN = re.compile(
@@ -36,7 +51,8 @@ _RULE_PATTERN = re.compile(
 )
 
 _PORT_PATTERN = re.compile(
-    r"^(?:\d{1,5})(?::\d{1,5})?(?:,\d{1,5}(?::\d{1,5})?)*$"
+    r"^(?:\d{1,5})(?::\d{1,5})?"
+    r"(?:,\d{1,5}(?::\d{1,5})?)*$"
 )
 
 
@@ -63,11 +79,14 @@ def set_firewall_enabled(
     *,
     enabled: bool,
 ) -> str:
+    before = _capture_ufw_configuration()
+
     if enabled:
         _run(
             ["ufw", "--force", "enable"],
             timeout=60,
         )
+        _record_ufw_configuration(before)
         refresh_snapshot()
         return "The firewall is now enabled."
 
@@ -75,6 +94,7 @@ def set_firewall_enabled(
         ["ufw", "disable"],
         timeout=60,
     )
+    _record_ufw_configuration(before)
     refresh_snapshot()
     return "The firewall is now disabled."
 
@@ -96,10 +116,12 @@ def set_logging(
             "The selected logging level is invalid."
         )
 
+    before = _capture_ufw_configuration()
     _run(
         ["ufw", "logging", normalized],
         timeout=30,
     )
+    _record_ufw_configuration(before)
     refresh_snapshot()
     return f"Firewall logging was set to {normalized}."
 
@@ -121,6 +143,8 @@ def set_defaults(
             "The outgoing default is invalid."
         )
 
+    before = _capture_ufw_configuration()
+
     _run(
         ["ufw", "default", incoming, "incoming"],
         timeout=30,
@@ -130,6 +154,7 @@ def set_defaults(
         timeout=30,
     )
 
+    _record_ufw_configuration(before)
     refresh_snapshot()
     return "The default firewall behavior was updated."
 
@@ -150,6 +175,8 @@ def add_rules(
             "At least one source is required."
         )
 
+    before = _capture_ufw_configuration()
+
     for source in sources:
         _add_rule(
             action=action,
@@ -162,6 +189,7 @@ def add_rules(
             comment=comment,
         )
 
+    _record_ufw_configuration(before)
     refresh_snapshot()
     count = len(sources)
     return (
@@ -272,6 +300,7 @@ def delete_rule(
             "The selected firewall rule is invalid."
         )
 
+    before = _capture_ufw_configuration()
     _run(
         [
             "ufw",
@@ -281,15 +310,18 @@ def delete_rule(
         ],
         timeout=60,
     )
+    _record_ufw_configuration(before)
     refresh_snapshot()
     return f"Firewall rule {number} was removed."
 
 
 def reset_firewall() -> str:
+    before = _capture_ufw_configuration()
     _run(
         ["ufw", "--force", "reset"],
         timeout=60,
     )
+    _record_ufw_configuration(before)
     refresh_snapshot()
     return (
         "All custom firewall rules were removed and "
@@ -318,17 +350,22 @@ def refresh_snapshot() -> str:
 
     for raw_line in status_text.splitlines():
         line = raw_line.strip()
+
         if line.startswith("Status:"):
             active = (
-                line.partition(":")[2].strip().lower()
+                line.partition(":")[2]
+                .strip()
+                .lower()
                 == "active"
             )
         elif line.startswith("Logging:"):
             logging = line.partition(":")[2].strip()
         elif line.startswith("Default:"):
             defaults = line.partition(":")[2].strip()
+
             for component in defaults.split(","):
                 value = component.strip()
+
                 if value.endswith("(incoming)"):
                     incoming = value.removesuffix(
                         "(incoming)"
@@ -352,15 +389,27 @@ def refresh_snapshot() -> str:
     rules: list[dict[str, object]] = []
 
     for raw_line in numbered.stdout.splitlines():
-        match = _RULE_PATTERN.match(raw_line.strip())
+        match = _RULE_PATTERN.match(
+            raw_line.strip()
+        )
+
         if match is None:
             continue
+
         rules.append(
             {
-                "number": int(match.group("number")),
-                "destination": match.group("to").strip(),
-                "action": match.group("action").strip(),
-                "source": match.group("from").strip(),
+                "number": int(
+                    match.group("number")
+                ),
+                "destination": (
+                    match.group("to").strip()
+                ),
+                "action": (
+                    match.group("action").strip()
+                ),
+                "source": (
+                    match.group("from").strip()
+                ),
             }
         )
 
@@ -376,9 +425,11 @@ def refresh_snapshot() -> str:
 
     for raw_line in profiles_result.stdout.splitlines():
         line = raw_line.strip()
+
         if line == "Available applications:":
             found_header = True
             continue
+
         if found_header and line:
             profiles.append(line)
 
@@ -400,18 +451,44 @@ def refresh_snapshot() -> str:
         parents=True,
         exist_ok=True,
     )
-    os.chmod(SNAPSHOT_PATH.parent, 0o755)
+    os.chmod(
+        SNAPSHOT_PATH.parent,
+        0o755,
+    )
 
     temporary = SNAPSHOT_PATH.with_suffix(".tmp")
     temporary.write_text(
-        json.dumps(payload, indent=2) + "\n",
+        json.dumps(
+            payload,
+            indent=2,
+        )
+        + "\n",
         encoding="utf-8",
     )
-    os.chmod(temporary, 0o644)
+    os.chmod(
+        temporary,
+        0o644,
+    )
     temporary.replace(SNAPSHOT_PATH)
-    os.chmod(SNAPSHOT_PATH, 0o644)
+    os.chmod(
+        SNAPSHOT_PATH,
+        0o644,
+    )
 
     return "Firewall status was refreshed."
+
+
+def _capture_ufw_configuration():
+    return capture_external_text_files(
+        UFW_CONFIGURATION_PATHS
+    )
+
+
+def _record_ufw_configuration(before) -> None:
+    record_external_text_changes(
+        module_id=MODULE_ID,
+        before=before,
+    )
 
 
 def _validate_network(value: str) -> None:
@@ -445,6 +522,7 @@ def _validate_ports(value: str) -> None:
 
         for endpoint in endpoints:
             port = int(endpoint)
+
             if not 1 <= port <= 65535:
                 raise ValueError(
                     "Ports must be between 1 and 65535."
@@ -452,7 +530,8 @@ def _validate_ports(value: str) -> None:
 
         if (
             len(endpoints) == 2
-            and int(endpoints[0]) > int(endpoints[1])
+            and int(endpoints[0])
+            > int(endpoints[1])
         ):
             raise ValueError(
                 "The beginning of a port range cannot "

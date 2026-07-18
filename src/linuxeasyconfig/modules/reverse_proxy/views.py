@@ -197,6 +197,67 @@ class ReverseProxyView(QWidget):
             self._caddy_validation,
         )
 
+        self._certificates_table = QTableWidget(0, 7)
+        self._certificates_table.setHorizontalHeaderLabels(
+            [
+                "Hostname",
+                "Status",
+                "Issuer",
+                "Valid From",
+                "Expires",
+                "Days Remaining",
+                "Serial Number",
+            ]
+        )
+        self._certificates_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self._certificates_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self._certificates_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self._certificates_table.setWordWrap(True)
+        certificate_header = (
+            self._certificates_table.horizontalHeader()
+        )
+        certificate_header.setSectionResizeMode(
+            QHeaderView.ResizeMode.Interactive
+        )
+        certificate_header.setStretchLastSection(True)
+
+        certificate_widths = [
+            220,
+            110,
+            280,
+            180,
+            180,
+            110,
+            220,
+        ]
+        for index, width in enumerate(
+            certificate_widths
+        ):
+            self._certificates_table.setColumnWidth(
+                index,
+                width,
+            )
+
+        certificate_note = QLabel(
+            "These are the certificates currently presented by Caddy "
+            "for enabled proxy-rule hostnames. Caddy obtains and renews "
+            "them automatically."
+        )
+        certificate_note.setWordWrap(True)
+
+        certificates = QGroupBox("SSL Certificates")
+        certificates_layout = QVBoxLayout(certificates)
+        certificates_layout.addWidget(certificate_note)
+        certificates_layout.addWidget(
+            self._certificates_table
+        )
+
         self._fail2ban_installed = QLabel()
         self._fail2ban_running = QLabel()
         self._fail2ban_version = QLabel()
@@ -227,6 +288,7 @@ class ReverseProxyView(QWidget):
 
         services = QVBoxLayout()
         services.addWidget(caddy)
+        services.addWidget(certificates)
         services.addWidget(fail2ban)
 
         refresh = QPushButton("Refresh Status")
@@ -687,12 +749,66 @@ class ReverseProxyView(QWidget):
         self._reload_button.setEnabled(
             status.lec_setup_complete
         )
+        self._refresh_certificates()
         self._refresh_dynamic_dns_hostnames()
         self._refresh_credentials()
         self._refresh_rules()
         self._refresh_protection()
         self._refresh_bans()
         self._refresh_logs()
+
+    def _refresh_certificates(self) -> None:
+        certificates = self._repository.certificates()
+        self._certificates_table.setRowCount(0)
+
+        for certificate in certificates:
+            row = self._certificates_table.rowCount()
+            self._certificates_table.insertRow(row)
+
+            days = (
+                str(certificate.days_remaining)
+                if certificate.days_remaining is not None
+                else ""
+            )
+            values = (
+                certificate.hostname,
+                certificate.status,
+                certificate.issuer,
+                certificate.valid_from,
+                certificate.expires,
+                days,
+                certificate.serial_number,
+            )
+
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setToolTip(certificate.detail)
+                self._certificates_table.setItem(
+                    row,
+                    column,
+                    item,
+                )
+
+        if not certificates:
+            self._certificates_table.setRowCount(1)
+            item = QTableWidgetItem(
+                "No enabled proxy-rule hostnames are configured."
+            )
+            item.setToolTip(
+                "Create and enable a proxy rule before Caddy can "
+                "obtain a certificate for its hostname."
+            )
+            self._certificates_table.setItem(
+                0,
+                0,
+                item,
+            )
+            self._certificates_table.setSpan(
+                0,
+                0,
+                1,
+                self._certificates_table.columnCount(),
+            )
 
     def _refresh_dynamic_dns_hostnames(self) -> None:
         current = self._public_host.currentText().strip()

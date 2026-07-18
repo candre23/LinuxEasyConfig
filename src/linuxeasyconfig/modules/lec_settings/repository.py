@@ -224,6 +224,20 @@ class RecoveryRepository:
 
         try:
             raw = revision.backup_path.read_bytes()
+        except PermissionError:
+            return "\n".join(
+                header
+                + [
+                    "The backup exists and can be restored.",
+                    "",
+                    "Its contents are protected because backups may "
+                    "contain passwords, API tokens, or other sensitive "
+                    "configuration.",
+                    "",
+                    "Select Load Protected Preview to inspect it with "
+                    "administrator authorization.",
+                ]
+            )
         except OSError as exc:
             return "\n".join(
                 header

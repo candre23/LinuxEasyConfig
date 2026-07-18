@@ -5,7 +5,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from linuxeasyconfig.core.config.managed import write_json
 
+
+MODULE_ID = "org.linuxeasyconfig.docker"
 STATE_DIR = Path("/etc/linuxeasyconfig/docker")
 MANAGED_CONTAINERS_PATH = STATE_DIR / "managed-containers.json"
 
@@ -58,19 +61,12 @@ def save_managed_containers(
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     STATE_DIR.chmod(0o755)
 
-    temporary = MANAGED_CONTAINERS_PATH.with_suffix(".tmp")
-    temporary.write_text(
-        json.dumps(
-            [asdict(item) for item in containers],
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
+    write_json(
+        module_id=MODULE_ID,
+        destination=MANAGED_CONTAINERS_PATH,
+        value=[asdict(item) for item in containers],
+        mode=0o644,
     )
-    temporary.chmod(0o644)
-    temporary.replace(MANAGED_CONTAINERS_PATH)
-    MANAGED_CONTAINERS_PATH.chmod(0o644)
 
 
 def upsert_managed_container(

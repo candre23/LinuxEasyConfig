@@ -235,7 +235,7 @@ class DockerView(QWidget):
         container = QWidget()
         layout = QVBoxLayout(container)
 
-        self._table = QTableWidget(0, 8)
+        self._table = QTableWidget(0, 6)
         self._table.setHorizontalHeaderLabels(
             [
                 "Name",
@@ -243,8 +243,6 @@ class DockerView(QWidget):
                 "State",
                 "Status",
                 "Published Ports",
-                "Available from This Computer",
-                "Available from Local Network",
                 "ID",
             ]
         )
@@ -261,10 +259,8 @@ class DockerView(QWidget):
         self._table.setColumnWidth(1, 170)
         self._table.setColumnWidth(2, 90)
         self._table.setColumnWidth(3, 180)
-        self._table.setColumnWidth(4, 240)
-        self._table.setColumnWidth(5, 240)
-        self._table.setColumnWidth(6, 240)
-        self._table.setColumnWidth(7, 120)
+        self._table.setColumnWidth(4, 260)
+        self._table.setColumnWidth(5, 120)
         self._table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows
         )
@@ -1116,68 +1112,6 @@ class DockerView(QWidget):
 
         return values
 
-    def _container_access_addresses(
-        self,
-        container_name: str,
-        published_ports: str,
-    ) -> tuple[str, str]:
-        managed = next(
-            (
-                item
-                for item in self._repository.managed_containers()
-                if (
-                    item.name == container_name
-                    or container_name == f"{item.name}-web"
-                )
-            ),
-            None,
-        )
-
-        if managed is None or managed.host_port <= 0:
-            return "", ""
-
-        scheme = (
-            "https"
-            if managed.service_protocol == "https"
-            else "http"
-            if managed.service_protocol == "http"
-            else managed.service_protocol
-        )
-        port = managed.host_port
-
-        if managed.access_scope == "localhost":
-            local = f"{scheme}://127.0.0.1:{port}"
-            return local, "Not directly available"
-
-        if managed.access_scope == "local_network":
-            address = managed.host_address.strip()
-
-            if not address:
-                address = (
-                    self._repository.primary_local_address()
-                )
-
-            if not address:
-                return "", ""
-
-            url = f"{scheme}://{address}:{port}"
-            return url, url
-
-        if managed.access_scope == "all_networks":
-            address = (
-                self._repository.primary_local_address()
-            )
-
-            local = f"{scheme}://127.0.0.1:{port}"
-            network = (
-                f"{scheme}://{address}:{port}"
-                if address
-                else "Available on all interfaces"
-            )
-            return local, network
-
-        return "", ""
-
     def reload(self) -> None:
         status = self._repository.status()
         self._installed.setText(
@@ -1234,22 +1168,12 @@ class DockerView(QWidget):
             row = self._table.rowCount()
             self._table.insertRow(row)
 
-            (
-                local_address,
-                network_address,
-            ) = self._container_access_addresses(
-                item.name,
-                item.ports,
-            )
-
             values = (
                 item.name,
                 item.image,
                 item.state,
                 item.status,
                 item.ports,
-                local_address,
-                network_address,
                 item.container_id,
             )
 

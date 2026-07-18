@@ -7,9 +7,12 @@ import re
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+from linuxeasyconfig.core.config.managed import write_json, write_text
 from typing import Any
 
 
+MODULE_ID = "org.linuxeasyconfig.firewall"
 STATE_PATH = Path(
     "/etc/linuxeasyconfig/firewall/docker-rules.json"
 )
@@ -258,19 +261,12 @@ def _save_and_apply(
     )
     os.chmod(STATE_PATH.parent, 0o755)
 
-    temporary = STATE_PATH.with_suffix(".tmp")
-    temporary.write_text(
-        json.dumps(
-            [asdict(rule) for rule in rules],
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
+    write_json(
+        module_id=MODULE_ID,
+        destination=STATE_PATH,
+        value=[asdict(rule) for rule in rules],
+        mode=0o644,
     )
-    os.chmod(temporary, 0o644)
-    temporary.replace(STATE_PATH)
-    os.chmod(STATE_PATH, 0o644)
 
     _write_apply_script(rules)
     _install_unit()
@@ -349,28 +345,32 @@ def _write_apply_script(
         parents=True,
         exist_ok=True,
     )
-    APPLY_SCRIPT.write_text(
-        "\n".join(lines) + "\n",
-        encoding="utf-8",
+    write_text(
+        module_id=MODULE_ID,
+        destination=APPLY_SCRIPT,
+        text="\n".join(lines) + "\n",
+        mode=0o755,
     )
-    os.chmod(APPLY_SCRIPT, 0o755)
 
 
 def _install_unit() -> None:
-    UNIT_PATH.write_text(
-        "[Unit]\n"
-        "Description=Apply Linux Easy Config Docker firewall rules\n"
-        "After=docker.service\n"
-        "Requires=docker.service\n\n"
-        "[Service]\n"
-        "Type=oneshot\n"
-        f"ExecStart={APPLY_SCRIPT}\n"
-        "RemainAfterExit=yes\n\n"
-        "[Install]\n"
-        "WantedBy=multi-user.target\n",
-        encoding="utf-8",
+    write_text(
+        module_id=MODULE_ID,
+        destination=UNIT_PATH,
+        text=(
+            "[Unit]\n"
+            "Description=Apply Linux Easy Config Docker firewall rules\n"
+            "After=docker.service\n"
+            "Requires=docker.service\n\n"
+            "[Service]\n"
+            "Type=oneshot\n"
+            f"ExecStart={APPLY_SCRIPT}\n"
+            "RemainAfterExit=yes\n\n"
+            "[Install]\n"
+            "WantedBy=multi-user.target\n"
+        ),
+        mode=0o644,
     )
-    os.chmod(UNIT_PATH, 0o644)
 
     _run(
         ["systemctl", "daemon-reload"],

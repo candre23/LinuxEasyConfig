@@ -5,7 +5,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from linuxeasyconfig.core.config.managed import write_json
 
+
+MODULE_ID = "org.linuxeasyconfig.task_scheduler"
 CONFIG_DIR = Path(
     "/etc/linuxeasyconfig/task_scheduler"
 )
@@ -123,6 +126,16 @@ def _save(
         exist_ok=True,
     )
     path.parent.chmod(0o755)
+
+    if path.is_relative_to(CONFIG_DIR):
+        write_json(
+            module_id=MODULE_ID,
+            destination=path,
+            value=value,
+            mode=mode,
+        )
+        return
+
     temporary = path.with_suffix(".tmp")
     temporary.write_text(
         json.dumps(

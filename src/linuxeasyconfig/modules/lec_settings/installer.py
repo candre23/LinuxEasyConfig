@@ -31,6 +31,62 @@ class RestoredConfiguration(
         )
 
 
+
+def preview_revision_backup(
+    *,
+    source_module_id: str,
+    revision: int,
+    destination: str,
+    backup_path: str,
+) -> str:
+    destination_path = Path(destination)
+
+    if not destination_path.is_absolute():
+        raise ValueError(
+            "The recovery destination must be an absolute path."
+        )
+
+    backup = _validate_backup_path(
+        backup_path=backup_path,
+        source_module_id=source_module_id,
+        revision=revision,
+        destination=destination_path,
+    )
+
+    raw = backup.read_bytes()
+
+    header = [
+        f"Module: {source_module_id}",
+        f"Revision: {revision}",
+        f"Destination: {destination_path}",
+        "",
+    ]
+
+    if b"\0" in raw:
+        return "\n".join(
+            header
+            + [
+                "Binary backup",
+                f"Size: {len(raw):,} bytes",
+                "",
+                "Binary files are not displayed in the preview.",
+            ]
+        )
+
+    text = raw.decode(
+        "utf-8",
+        errors="replace",
+    )
+
+    return "\n".join(
+        header
+        + [
+            "Backup contents",
+            "------------------------------------------------------------",
+            text,
+        ]
+    )
+
 def restore_revision(
     *,
     source_module_id: str,

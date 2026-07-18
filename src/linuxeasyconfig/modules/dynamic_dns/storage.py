@@ -5,7 +5,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from linuxeasyconfig.core.config.managed import write_json
 
+
+MODULE_ID = "org.linuxeasyconfig.dynamic_dns"
 CONFIG_DIR = Path(
     "/etc/linuxeasyconfig/dynamic_dns"
 )
@@ -176,6 +179,17 @@ def _save(
     )
     path.parent.chmod(0o755)
 
+    if path.is_relative_to(CONFIG_DIR):
+        write_json(
+            module_id=MODULE_ID,
+            destination=path,
+            value=value,
+            mode=mode,
+        )
+        return
+
+    # Status and public inventory files under /var/lib are generated
+    # snapshots, not recoverable configuration revisions.
     temporary = path.with_suffix(".tmp")
     temporary.write_text(
         json.dumps(

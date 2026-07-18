@@ -37,7 +37,7 @@ class DockerModule(LECModule):
                     "Install Docker and manage common "
                     "container operations."
                 ),
-                category="Application",
+                category="System",
                 icon="package-x-generic",
                 keywords=(
                     "docker",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -38,6 +39,19 @@ class ServiceState:
     active: bool
     enabled: bool
     version: str
+    detail: str
+
+
+@dataclass(frozen=True)
+class CertificateStatus:
+    hostname: str
+    available: bool
+    issuer: str
+    valid_from: str
+    expires: str
+    days_remaining: int | None
+    serial_number: str
+    status: str
     detail: str
 
 
@@ -100,6 +114,42 @@ class ReverseProxyRepository:
             lec_setup_complete=setup_complete,
         )
 
+
+    def certificates(self) -> list[CertificateStatus]:
+        hostnames = sorted(
+            {
+                rule.public_host.strip().lower().rstrip(".")
+                for rule in self.rules()
+                if rule.enabled and rule.public_host.strip()
+            }
+        )
+
+        if not hostnames:
+            return []
+
+        if shutil.which("openssl") is None:
+            return [
+                CertificateStatus(
+                    hostname=hostname,
+                    available=False,
+                    issuer="",
+                    valid_from="",
+                    expires="",
+                    days_remaining=None,
+                    serial_number="",
+                    status="OpenSSL unavailable",
+                    detail=(
+                        "The openssl command is not installed, so "
+                        "certificate details could not be read."
+                    ),
+                )
+                for hostname in hostnames
+            ]
+
+        return [
+            _certificate_status(hostname)
+            for hostname in hostnames
+        ]
 
     def credentials(self) -> list[ProxyCredential]:
         return load_credentials()
@@ -329,3 +379,157 @@ def _service_state(
             or "Unknown"
         ),
     )
+
+
+def _certificate_status(
+    hostname: str,
+) -> CertificateStatus:
+    connection = subprocess.run(
+        [
+            "openssl",
+            "s_client",
+            "-connect",
+            "127.0.0.1:443",
+            "-servername",
+            hostname,
+            "-showcerts",
+        ],
+        input="",
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+
+    combined = (
+        connection.stdout
+        + "\n"
+        + connection.stderr
+    )
+    certificate = _first_pem_certificate(combined)
+
+    if not certificate:
+        detail = (
+            connection.stderr.strip()
+            or connection.stdout.strip()
+            or "Caddy did not present a certificate."
+        )
+        return CertificateStatus(
+            hostname=hostname,
+            available=False,
+            issuer="",
+            valid_from="",
+            expires="",
+            days_remaining=None,
+            serial_number="",
+            status="Not available",
+            detail=detail,
+        )
+
+    inspection = subprocess.run(
+        [
+            "openssl",
+            "x509",
+            "-noout",
+            "-issuer",
+            "-startdate",
+            "-enddate",
+            "-serial",
+        ],
+        input=certificate,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+
+    if inspection.returncode != 0:
+        return CertificateStatus(
+            hostname=hostname,
+            available=False,
+            issuer="",
+            valid_from="",
+            expires="",
+            days_remaining=None,
+            serial_number="",
+            status="Could not inspect",
+            detail=(
+                inspection.stderr.strip()
+                or "OpenSSL could not inspect the certificate."
+            ),
+        )
+
+    values: dict[str, str] = {}
+
+    for raw_line in inspection.stdout.splitlines():
+        key, separator, value = raw_line.partition("=")
+
+        if separator:
+            values[key.strip()] = value.strip()
+
+    issuer = values.get("issuer", "")
+    valid_from = values.get("notBefore", "")
+    expires = values.get("notAfter", "")
+    serial = values.get("serial", "")
+    days_remaining = _days_until(expires)
+
+    if days_remaining is None:
+        status = "Available"
+    elif days_remaining < 0:
+        status = "Expired"
+    elif days_remaining <= 14:
+        status = "Expires soon"
+    else:
+        status = "Valid"
+
+    return CertificateStatus(
+        hostname=hostname,
+        available=True,
+        issuer=issuer,
+        valid_from=valid_from,
+        expires=expires,
+        days_remaining=days_remaining,
+        serial_number=serial,
+        status=status,
+        detail=(
+            "Certificate currently presented by Caddy on "
+            f"127.0.0.1:443 for SNI hostname {hostname}."
+        ),
+    )
+
+
+def _first_pem_certificate(
+    value: str,
+) -> str:
+    begin = "-----BEGIN CERTIFICATE-----"
+    end = "-----END CERTIFICATE-----"
+    start = value.find(begin)
+
+    if start < 0:
+        return ""
+
+    finish = value.find(end, start)
+
+    if finish < 0:
+        return ""
+
+    finish += len(end)
+    return value[start:finish] + "\n"
+
+
+def _days_until(
+    openssl_date: str,
+) -> int | None:
+    if not openssl_date:
+        return None
+
+    try:
+        expires = dt.datetime.strptime(
+            openssl_date,
+            "%b %d %H:%M:%S %Y %Z",
+        ).replace(tzinfo=dt.timezone.utc)
+    except ValueError:
+        return None
+
+    now = dt.datetime.now(dt.timezone.utc)
+    return (expires - now).days

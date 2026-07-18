@@ -1,1 +1,0 @@
-"""LEC recovery module."""

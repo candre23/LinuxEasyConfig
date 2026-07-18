@@ -8,10 +8,16 @@ import sys
 import uuid
 from pathlib import Path
 
+from linuxeasyconfig.core.config.managed import (
+    remove_file,
+    write_text,
+)
+
 from .collector import collect_status
 from .storage import ScheduledTask, load_tasks, save_tasks
 
 
+MODULE_ID = "org.linuxeasyconfig.task_scheduler"
 UNIT_DIR = Path("/etc/systemd/system")
 SCRIPT_DIR = Path(
     "/etc/linuxeasyconfig/task_scheduler/scripts"
@@ -91,29 +97,35 @@ def save_task(
     )
     SCRIPT_DIR.chmod(0o700)
     script = SCRIPT_DIR / f"{task_id}.sh"
-    script.write_text(
-        "#!/bin/bash\n"
-        "set -o pipefail\n"
-        f"cd {shlex.quote(working_directory)}\n"
-        f"{command}\n",
-        encoding="utf-8",
+    write_text(
+        module_id=MODULE_ID,
+        destination=script,
+        text=(
+            "#!/bin/bash\n"
+            "set -o pipefail\n"
+            f"cd {shlex.quote(working_directory)}\n"
+            f"{command}\n"
+        ),
+        mode=0o700,
     )
-    script.chmod(0o700)
 
     service_path = UNIT_DIR / f"lec-task-{task_id}.service"
     timer_path = UNIT_DIR / f"lec-task-{task_id}.timer"
 
-    service_path.write_text(
-        "[Unit]\n"
-        f"Description=LEC scheduled task: {name}\n\n"
-        "[Service]\n"
-        "Type=oneshot\n"
-        f"User={run_as_user}\n"
-        f"WorkingDirectory={working_directory}\n"
-        f"ExecStart=/bin/bash {script}\n",
-        encoding="utf-8",
+    write_text(
+        module_id=MODULE_ID,
+        destination=service_path,
+        text=(
+            "[Unit]\n"
+            f"Description=LEC scheduled task: {name}\n\n"
+            "[Service]\n"
+            "Type=oneshot\n"
+            f"User={run_as_user}\n"
+            f"WorkingDirectory={working_directory}\n"
+            f"ExecStart=/bin/bash {script}\n"
+        ),
+        mode=0o644,
     )
-    service_path.chmod(0o644)
 
     timer_lines = [
         "[Unit]",
@@ -139,11 +151,12 @@ def save_task(
         ]
     )
 
-    timer_path.write_text(
-        "\n".join(timer_lines),
-        encoding="utf-8",
+    write_text(
+        module_id=MODULE_ID,
+        destination=timer_path,
+        text="\n".join(timer_lines),
+        mode=0o644,
     )
-    timer_path.chmod(0o644)
 
     tasks = [
         item
@@ -214,10 +227,10 @@ def delete_task(
         UNIT_DIR / f"lec-task-{task_id}.service",
         SCRIPT_DIR / f"{task_id}.sh",
     ):
-        try:
-            path.unlink()
-        except FileNotFoundError:
-            pass
+        remove_file(
+            module_id=MODULE_ID,
+            destination=path,
+        )
 
     save_tasks(
         [
@@ -292,31 +305,37 @@ def install_monitor() -> str:
     interpreter = Path(sys.executable).resolve()
     package_root = Path(__file__).resolve().parents[3]
 
-    MONITOR_SERVICE.write_text(
-        "[Unit]\n"
-        "Description=Linux Easy Config scheduled-task inventory\n\n"
-        "[Service]\n"
-        "Type=oneshot\n"
-        f"Environment=PYTHONPATH={package_root}\n"
-        f"ExecStart={interpreter} -m "
-        "linuxeasyconfig.modules.task_scheduler.snapshot_runner\n",
-        encoding="utf-8",
+    write_text(
+        module_id=MODULE_ID,
+        destination=MONITOR_SERVICE,
+        text=(
+            "[Unit]\n"
+            "Description=Linux Easy Config scheduled-task inventory\n\n"
+            "[Service]\n"
+            "Type=oneshot\n"
+            f"Environment=PYTHONPATH={package_root}\n"
+            f"ExecStart={interpreter} -m "
+            "linuxeasyconfig.modules.task_scheduler.snapshot_runner\n"
+        ),
+        mode=0o644,
     )
-    MONITOR_SERVICE.chmod(0o644)
 
-    MONITOR_TIMER.write_text(
-        "[Unit]\n"
-        "Description=Refresh Linux Easy Config scheduled-task inventory\n\n"
-        "[Timer]\n"
-        "OnBootSec=1min\n"
-        "OnUnitActiveSec=5min\n"
-        "AccuracySec=30s\n"
-        "Persistent=true\n\n"
-        "[Install]\n"
-        "WantedBy=timers.target\n",
-        encoding="utf-8",
+    write_text(
+        module_id=MODULE_ID,
+        destination=MONITOR_TIMER,
+        text=(
+            "[Unit]\n"
+            "Description=Refresh Linux Easy Config scheduled-task inventory\n\n"
+            "[Timer]\n"
+            "OnBootSec=1min\n"
+            "OnUnitActiveSec=5min\n"
+            "AccuracySec=30s\n"
+            "Persistent=true\n\n"
+            "[Install]\n"
+            "WantedBy=timers.target\n"
+        ),
+        mode=0o644,
     )
-    MONITOR_TIMER.chmod(0o644)
 
     _run(["systemctl", "daemon-reload"])
     _run(

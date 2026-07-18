@@ -1,0 +1,9 @@
+{
+  "format_version": 1,
+  "id": "org.linuxeasyconfig.system_logs",
+  "name": "System Logs",
+  "version": "0.1.0",
+  "description": "Browse system logs with severity markup, grouping, plain-English interpretations, and troubleshooting guidance.",
+  "module_type": "extended",
+  "entry_point": "module:SystemLogsModule"
+}

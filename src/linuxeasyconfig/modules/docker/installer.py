@@ -7,6 +7,10 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+
+from linuxeasyconfig.core.config.managed import (
+    write_text,
+)
 from typing import Any
 
 from .presets import validate_preset
@@ -20,6 +24,7 @@ from .storage import (
 SNAPSHOT_PATH = Path(
     "/var/lib/linuxeasyconfig/docker/status.json"
 )
+MODULE_ID = "org.linuxeasyconfig.docker"
 APPLICATION_ROOT = Path(
     "/opt/linuxeasyconfig/docker/apps"
 )
@@ -95,16 +100,19 @@ def install_docker() -> str:
         timeout=30,
     )
 
-    source.write_text(
-        "Types: deb\n"
-        "URIs: https://download.docker.com/linux/ubuntu\n"
-        f"Suites: {codename}\n"
-        "Components: stable\n"
-        f"Architectures: {architecture}\n"
-        f"Signed-By: {keyring}\n",
-        encoding="utf-8",
+    write_text(
+        module_id=MODULE_ID,
+        destination=source,
+        text=(
+            "Types: deb\n"
+            "URIs: https://download.docker.com/linux/ubuntu\n"
+            f"Suites: {codename}\n"
+            "Components: stable\n"
+            f"Architectures: {architecture}\n"
+            f"Signed-By: {keyring}\n"
+        ),
+        mode=0o644,
     )
-    os.chmod(source, 0o644)
 
     _run(
         ["apt-get", "update"],
@@ -748,11 +756,12 @@ def deploy_preset(
         application_directory / ".env"
     )
 
-    compose_path.write_text(
-        rendered.rstrip() + "\n",
-        encoding="utf-8",
+    write_text(
+        module_id=MODULE_ID,
+        destination=compose_path,
+        text=rendered.rstrip() + "\n",
+        mode=0o640,
     )
-    os.chmod(compose_path, 0o640)
 
     environment_values = compose.get(
         "environment",
@@ -793,11 +802,12 @@ def deploy_preset(
             f"{environment_key}={value}"
         )
 
-    environment_path.write_text(
-        "\n".join(environment_lines) + "\n",
-        encoding="utf-8",
+    write_text(
+        module_id=MODULE_ID,
+        destination=environment_path,
+        text="\n".join(environment_lines) + "\n",
+        mode=0o600,
     )
-    os.chmod(environment_path, 0o600)
 
     initialization = compose.get("initialization")
 
@@ -1060,14 +1070,12 @@ def _initialize_guacamole_schema(
             "Guacamole produced an empty database schema."
         )
 
-    temporary = schema_path.with_suffix(".tmp")
-    temporary.write_text(
-        result.stdout,
-        encoding="utf-8",
+    write_text(
+        module_id=MODULE_ID,
+        destination=schema_path,
+        text=result.stdout,
+        mode=0o644,
     )
-    os.chmod(temporary, 0o644)
-    temporary.replace(schema_path)
-    os.chmod(schema_path, 0o644)
 
 
 def _primary_local_address() -> str:

@@ -55,31 +55,7 @@ class FirewallModule(LECModule):
                     "supports_tcp": True,
                     "supports_udp": True,
                 },
-            ),
-            CapabilityDefinition(
-                id="firewall.allow_docker_service",
-                provider_module_id="org.linuxeasyconfig.firewall",
-                title="Restrict a Docker service to selected networks",
-                description=(
-                    "Create Docker forwarding-path firewall rules "
-                    "for a published container port."
-                ),
-                privileged_task_id="firewall.allow_docker_service",
-                metadata={
-                    "supports_local_network": True,
-                    "docker_aware": True,
-                },
-            ),
-            CapabilityDefinition(
-                id="firewall.remove_docker_service",
-                provider_module_id="org.linuxeasyconfig.firewall",
-                title="Remove Docker service firewall rules",
-                description=(
-                    "Remove LEC-managed Docker forwarding rules."
-                ),
-                privileged_task_id="firewall.remove_docker_service",
-                metadata={"docker_aware": True},
-            ),
+            )
         ]
 
     def view_definitions(self) -> list[ViewDefinition]:

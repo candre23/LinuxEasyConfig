@@ -1,9 +1,0 @@
-{
-  "format_version": 1,
-  "id": "org.linuxeasyconfig.recovery",
-  "name": "LEC Recovery",
-  "version": "0.1.0",
-  "description": "Review and restore files changed by Linux Easy Config.",
-  "module_type": "extended",
-  "entry_point": "module:RecoveryModule"
-}

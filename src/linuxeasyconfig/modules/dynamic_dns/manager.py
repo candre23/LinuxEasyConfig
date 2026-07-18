@@ -9,6 +9,8 @@ from urllib.parse import urlsplit
 from pathlib import Path
 from typing import Any
 
+from linuxeasyconfig.core.config.managed import write_text
+
 from .provider_registry import get_provider
 from .storage import (
     ManagedHostname,
@@ -21,6 +23,7 @@ from .storage import (
 from .updater import update_all
 
 
+MODULE_ID = "org.linuxeasyconfig.dynamic_dns"
 SERVICE_PATH = Path(
     "/etc/systemd/system/lec-dynamic-dns.service"
 )
@@ -323,33 +326,39 @@ def install_update_timer() -> str:
     ).resolve()
     package_root = updater.parents[3]
 
-    SERVICE_PATH.write_text(
-        "[Unit]\n"
-        "Description=Linux Easy Config Dynamic DNS update\n"
-        "Wants=network-online.target\n"
-        "After=network-online.target\n\n"
-        "[Service]\n"
-        "Type=oneshot\n"
-        f"Environment=PYTHONPATH={package_root}\n"
-        f"ExecStart={interpreter} -m "
-        "linuxeasyconfig.modules.dynamic_dns.updater\n",
-        encoding="utf-8",
+    write_text(
+        module_id=MODULE_ID,
+        destination=SERVICE_PATH,
+        text=(
+            "[Unit]\n"
+            "Description=Linux Easy Config Dynamic DNS update\n"
+            "Wants=network-online.target\n"
+            "After=network-online.target\n\n"
+            "[Service]\n"
+            "Type=oneshot\n"
+            f"Environment=PYTHONPATH={package_root}\n"
+            f"ExecStart={interpreter} -m "
+            "linuxeasyconfig.modules.dynamic_dns.updater\n"
+        ),
+        mode=0o644,
     )
-    os.chmod(SERVICE_PATH, 0o644)
 
-    TIMER_PATH.write_text(
-        "[Unit]\n"
-        "Description=Run Linux Easy Config Dynamic DNS updates\n\n"
-        "[Timer]\n"
-        "OnBootSec=2min\n"
-        "OnUnitActiveSec=5min\n"
-        "Persistent=true\n"
-        "RandomizedDelaySec=30\n\n"
-        "[Install]\n"
-        "WantedBy=timers.target\n",
-        encoding="utf-8",
+    write_text(
+        module_id=MODULE_ID,
+        destination=TIMER_PATH,
+        text=(
+            "[Unit]\n"
+            "Description=Run Linux Easy Config Dynamic DNS updates\n\n"
+            "[Timer]\n"
+            "OnBootSec=2min\n"
+            "OnUnitActiveSec=5min\n"
+            "Persistent=true\n"
+            "RandomizedDelaySec=30\n\n"
+            "[Install]\n"
+            "WantedBy=timers.target\n"
+        ),
+        mode=0o644,
     )
-    os.chmod(TIMER_PATH, 0o644)
 
     _run(
         ["systemctl", "daemon-reload"]

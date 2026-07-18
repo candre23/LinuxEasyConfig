@@ -7,7 +7,36 @@ from linuxeasyconfig.core.privileged.arguments import (
     required_string,
 )
 
-from .installer import restore_revision
+from .installer import preview_revision_backup, restore_revision
+
+
+def _preview(
+    arguments: dict[str, Any],
+) -> str:
+    revision_value = arguments.get("revision")
+
+    try:
+        revision = int(revision_value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "The recovery revision is invalid."
+        ) from exc
+
+    return preview_revision_backup(
+        source_module_id=required_string(
+            arguments,
+            "module_id",
+        ),
+        revision=revision,
+        destination=required_string(
+            arguments,
+            "destination",
+        ),
+        backup_path=required_string(
+            arguments,
+            "backup_path",
+        ),
+    )
 
 
 def _restore(
@@ -44,5 +73,6 @@ def _restore(
 
 
 PRIVILEGED_TASKS = {
-    "recovery.restore": _restore,
+    "lec_settings.preview": _preview,
+    "lec_settings.restore": _restore,
 }
