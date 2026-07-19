@@ -25,6 +25,9 @@ class ManagedContainer:
     service_protocol: str
     reverse_proxy_compatible: bool
     public_host: str = ""
+    firewall_rule_created: bool = False
+    reverse_proxy_rule_created: bool = False
+    reverse_proxy_rule_name: str = ""
 
 
 def load_managed_containers() -> list[ManagedContainer]:
@@ -78,6 +81,34 @@ def upsert_managed_container(
         if item.name != container.name
     ]
     containers.append(container)
+    save_managed_containers(containers)
+
+
+def update_managed_container_integrations(
+    *,
+    name: str,
+    firewall_rule_created: bool,
+    reverse_proxy_rule_created: bool,
+    reverse_proxy_rule_name: str,
+) -> None:
+    containers = load_managed_containers()
+    updated = False
+
+    for item in containers:
+        if item.name != name:
+            continue
+
+        item.firewall_rule_created = firewall_rule_created
+        item.reverse_proxy_rule_created = reverse_proxy_rule_created
+        item.reverse_proxy_rule_name = reverse_proxy_rule_name.strip()
+        updated = True
+        break
+
+    if not updated:
+        raise ValueError(
+            f"Managed container {name!r} was not found."
+        )
+
     save_managed_containers(containers)
 
 

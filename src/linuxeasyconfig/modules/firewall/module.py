@@ -40,22 +40,60 @@ class FirewallModule(LECModule):
             )
         ]
 
-    def capability_definitions(self) -> list[CapabilityDefinition]:
+    def capability_definitions(
+        self,
+    ) -> list[CapabilityDefinition]:
         return [
             CapabilityDefinition(
                 id="firewall.allow_service",
-                provider_module_id="org.linuxeasyconfig.firewall",
-                title="Allow a local service through the firewall",
-                description=(
-                    "Create one or more UFW rules for a service port."
+                provider_module_id=(
+                    "org.linuxeasyconfig.firewall"
                 ),
-                privileged_task_id="firewall.add_rule",
+                title=(
+                    "Allow a local service through "
+                    "the firewall"
+                ),
+                description=(
+                    "Create one or more UFW rules "
+                    "for a service port."
+                ),
+                privileged_task_id=(
+                    "firewall.add_rule"
+                ),
                 metadata={
                     "supports_local_network": True,
                     "supports_tcp": True,
                     "supports_udp": True,
                 },
-            )
+            ),
+            CapabilityDefinition(
+                id=(
+                    "firewall."
+                    "allow_docker_service"
+                ),
+                provider_module_id=(
+                    "org.linuxeasyconfig.firewall"
+                ),
+                title=(
+                    "Allow a Docker service through "
+                    "the firewall"
+                ),
+                description=(
+                    "Create persistent local-network "
+                    "firewall rules for a Docker "
+                    "published port."
+                ),
+                privileged_task_id=(
+                    "firewall."
+                    "allow_docker_service"
+                ),
+                metadata={
+                    "supports_local_network": True,
+                    "supports_tcp": True,
+                    "supports_udp": True,
+                    "docker_aware": True,
+                },
+            ),
         ]
 
     def view_definitions(self) -> list[ViewDefinition]:

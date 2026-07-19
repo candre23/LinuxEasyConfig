@@ -1,0 +1,97 @@
+{
+  "format_version": 1,
+  "id": "org.apache.guacamole",
+  "name": "Apache Guacamole",
+  "version": "1.6.0",
+  "type": "compose",
+  "description": "Deploy the official Apache Guacamole web application, guacd, and PostgreSQL database as an isolated Docker Compose stack. The initial login is guacadmin / guacadmin and must be changed immediately after first login.",
+  "homepage": "https://guacamole.apache.org/",
+  "fields": [
+    {
+      "id": "application_name",
+      "label": "Application name",
+      "type": "text",
+      "default": "guacamole",
+      "required": true,
+      "help": "Used for the Compose project, containers, and persistent volume names."
+    },
+    {
+      "id": "host_port",
+      "label": "Host web port",
+      "type": "port",
+      "default": 8080,
+      "required": true
+    },
+    {
+      "id": "access_scope",
+      "label": "Network access",
+      "type": "choice",
+      "default": "localhost",
+      "choices": [
+        {
+          "label": "Local or reverse proxy only (recommended)",
+          "value": "localhost"
+        },
+        {
+          "label": "Local network",
+          "value": "local_network"
+        },
+        {
+          "label": "All networks (not recommended)",
+          "value": "all_networks"
+        }
+      ]
+    },
+    {
+      "id": "allow_firewall",
+      "label": "Create local-network Firewall rule",
+      "type": "boolean",
+      "default": true,
+      "help": "Used only when Network access is Local network."
+    },
+    {
+      "id": "publish_reverse_proxy",
+      "label": "Publish through Reverse Proxy",
+      "type": "boolean",
+      "default": false,
+      "help": "Forces Local or reverse proxy only access and creates a Caddy route."
+    },
+    {
+      "id": "public_host",
+      "label": "Public hostname",
+      "type": "text",
+      "default": "",
+      "placeholder": "guacamole.example.com",
+      "help": "Required only when publishing through Reverse Proxy."
+    },
+    {
+      "id": "proxy_login",
+      "label": "Require an additional Caddy login",
+      "type": "boolean",
+      "default": false
+    },
+    {
+      "id": "postgres_password",
+      "label": "Database password",
+      "type": "password",
+      "default": "",
+      "generate": "password",
+      "required": true,
+      "help": "LEC generates a strong password automatically. It is stored only in the application's protected .env file."
+    }
+  ],
+  "compose": {
+    "environment": [
+      "postgres_password"
+    ],
+    "initialization": "guacamole_postgresql_schema",
+    "initialization_image": "guacamole/guacamole:1.6.0",
+    "template": "services:\n  postgres:\n    image: postgres:16\n    container_name: {{application_name}}-postgres\n    restart: unless-stopped\n    environment:\n      POSTGRES_DB: guacamole_db\n      POSTGRES_USER: guacamole_user\n      POSTGRES_PASSWORD: \"${POSTGRES_PASSWORD}\"\n    volumes:\n      - guacamole_database:/var/lib/postgresql/data\n      - ./initdb.sql:/docker-entrypoint-initdb.d/001-guacamole.sql:ro\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U guacamole_user -d guacamole_db\"]\n      interval: 10s\n      timeout: 5s\n      retries: 10\n\n  guacd:\n    image: guacamole/guacd:1.6.0\n    container_name: {{application_name}}-guacd\n    restart: unless-stopped\n\n  guacamole:\n    image: guacamole/guacamole:1.6.0\n    container_name: {{application_name}}-web\n    restart: unless-stopped\n    depends_on:\n      postgres:\n        condition: service_healthy\n      guacd:\n        condition: service_started\n    environment:\n      GUACD_HOSTNAME: guacd\n      POSTGRESQL_ENABLED: \"true\"\n      POSTGRESQL_HOSTNAME: postgres\n      POSTGRESQL_DATABASE: guacamole_db\n      POSTGRESQL_USERNAME: guacamole_user\n      POSTGRESQL_PASSWORD: \"${POSTGRES_PASSWORD}\"\n      WEBAPP_CONTEXT: ROOT\n      REMOTE_IP_VALVE_ENABLED: \"true\"\n    ports:\n      - \"{{bind_address}}:{{host_port}}:8080\"\n\nvolumes:\n  guacamole_database:\n"
+  },
+  "service": {
+    "protocol": "http",
+    "transport_protocol": "tcp",
+    "container_port": 8080,
+    "reverse_proxy_compatible": true
+  }
+}

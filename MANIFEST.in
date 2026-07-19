@@ -1,0 +1,21 @@
+include README.md
+include LICENSE
+include pyproject.toml
+
+include src/linuxeasyconfig/modules/*.lec
+
+prune tests
+prune tests-data
+prune build
+prune dist
+prune .venv
+prune .git
+prune private
+prune local
+
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude *.log
+global-exclude *.tmp
+global-exclude *.bak
+global-exclude *~

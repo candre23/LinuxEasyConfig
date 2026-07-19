@@ -1,0 +1,1 @@
+extend-diff-ignore = "(^|/)(\.venv|build|dist|__pycache__|\.pytest_cache|module-cache|private|local)(/|$)"

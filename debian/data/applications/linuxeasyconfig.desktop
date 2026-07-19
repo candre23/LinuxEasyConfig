@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Linux Easy Config
+GenericName=System Configuration
+Comment=Configure and manage an Ubuntu system
+Exec=lec
+Icon=linuxeasyconfig
+Terminal=false
+Categories=System;Settings;
+Keywords=Ubuntu;Linux;administration;configuration;system;
+StartupNotify=true

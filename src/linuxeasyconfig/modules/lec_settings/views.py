@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import (
@@ -14,11 +15,13 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QInputDialog,
     QMessageBox,
     QPushButton,
     QPlainTextEdit,
@@ -34,6 +37,7 @@ from linuxeasyconfig.core.privileged.runner import PrivilegedRunner
 from linuxeasyconfig.core.privileged.task import PrivilegedTask
 from linuxeasyconfig.core.theme import apply_appearance
 
+from .module_management import ModuleManagementRepository
 from .overview_repository import OverviewRepository
 from .repository import RecoveryRepository, RecoveryRevision
 from .settings import LECSettings, load_settings, save_settings
@@ -93,6 +97,7 @@ class LECSettingsView(QWidget):
 
         self._overview_repository = overview_repository
         self._recovery_repository = recovery_repository
+        self._module_management = ModuleManagementRepository()
         self._settings = load_settings()
 
         heading = QLabel("LEC Settings")
@@ -343,12 +348,186 @@ class LECSettingsView(QWidget):
         buttons.addStretch(1)
         buttons.addWidget(save_button)
 
+        module_group = QGroupBox("Modules")
+        module_layout = QVBoxLayout(module_group)
+
+        module_note = QLabel(
+            "Install optional .lec modules or remove modules "
+            "previously installed by the current user. Bundled "
+            "modules cannot be removed. A custom module may "
+            "override a bundled module with the same module ID."
+        )
+        module_note.setWordWrap(True)
+
+        add_module_button = QPushButton("Add .lec Module")
+        add_module_button.clicked.connect(self._add_module)
+
+        remove_module_button = QPushButton("Remove Custom Module")
+        remove_module_button.clicked.connect(self._remove_module)
+
+        module_buttons = QHBoxLayout()
+        module_buttons.addWidget(add_module_button)
+        module_buttons.addWidget(remove_module_button)
+        module_buttons.addStretch(1)
+
+        module_layout.addWidget(module_note)
+        module_layout.addLayout(module_buttons)
+
         layout.addWidget(appearance_group)
         layout.addWidget(behavior_group)
+        layout.addWidget(module_group)
         layout.addWidget(note)
         layout.addStretch(1)
         layout.addLayout(buttons)
         return page
+
+    def _add_module(self) -> None:
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            "Add LEC Module",
+            str(Path.home()),
+            "LEC Modules (*.lec)",
+        )
+
+        if not filename:
+            return
+
+        try:
+            candidate = self._module_management.inspect_import(
+                Path(filename)
+            )
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Invalid LEC Module",
+                str(exc),
+            )
+            return
+
+        warnings: list[str] = []
+        if candidate.overrides_builtin:
+            warnings.append(
+                "This module has the same module ID as a bundled "
+                "LEC module. Installing it will override the bundled "
+                "module after LEC restarts. The bundled copy remains "
+                "installed and becomes active again if this custom "
+                "override is removed."
+            )
+        if candidate.replaces_custom:
+            warnings.append(
+                "A custom module with this module ID is already "
+                "installed and will be replaced."
+            )
+
+        if warnings:
+            response = QMessageBox.warning(
+                self,
+                "Confirm Module Replacement",
+                (
+                    f"Module: {candidate.name}\n"
+                    f"Version: {candidate.version}\n"
+                    f"Module ID: {candidate.module_id}\n\n"
+                    + "\n\n".join(warnings)
+                    + "\n\nAn incompatible module can prevent LEC "
+                    "or related modules from loading. Continue?"
+                ),
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if response != QMessageBox.StandardButton.Yes:
+                return
+
+        try:
+            destination = self._module_management.install(candidate)
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Module Installation Failed",
+                str(exc),
+            )
+            return
+
+        QMessageBox.information(
+            self,
+            "Module Installed",
+            (
+                f"{candidate.name} was installed to:\n"
+                f"{destination}\n\n"
+                "Restart Linux Easy Config to load the module."
+            ),
+        )
+
+    def _remove_module(self) -> None:
+        modules = self._module_management.custom_modules()
+
+        if not modules:
+            QMessageBox.information(
+                self,
+                "No Custom Modules",
+                "There are no custom modules to remove.",
+            )
+            return
+
+        labels = [module.display_name for module in modules]
+        selection, accepted = QInputDialog.getItem(
+            self,
+            "Remove Custom Module",
+            "Select a custom module:",
+            labels,
+            0,
+            False,
+        )
+
+        if not accepted:
+            return
+
+        try:
+            module = modules[labels.index(selection)]
+        except ValueError:
+            return
+
+        detail = f"Remove {module.name} ({module.version})?\n\n"
+        if module.overrides_builtin:
+            detail += (
+                "The bundled module it overrides will become active "
+                "again after LEC restarts."
+            )
+        else:
+            detail += (
+                "The module will no longer be available after LEC "
+                "restarts."
+            )
+
+        response = QMessageBox.question(
+            self,
+            "Confirm Module Removal",
+            detail,
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if response != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            self._module_management.remove(module)
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Module Removal Failed",
+                str(exc),
+            )
+            return
+
+        QMessageBox.information(
+            self,
+            "Module Removed",
+            (
+                f"{module.name} was removed.\n\n"
+                "Restart Linux Easy Config to apply the change."
+            ),
+        )
 
     def _save_settings(self) -> None:
         self._settings = LECSettings(

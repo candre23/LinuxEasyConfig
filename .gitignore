@@ -1,36 +1,66 @@
 # Python
 __pycache__/
 *.py[cod]
+*$py.class
 *.egg-info/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .coverage
+coverage.xml
 htmlcov/
 
-# Virtual environment
+# Virtual environments
 .venv/
+venv/
+env/
 
 # Build output
 build/
 dist/
 *.deb
-*.AppImage
+*.changes
+*.build
+*.buildinfo
+*.dsc
+*.tar.*
+debian/.debhelper/
+debian/files
+debian/linuxeasyconfig/
+debian/linuxeasyconfig.substvars
 
-# Editors
+# LEC development packages and caches
+*.lec
+module-cache/
+module-packages/
+.cache/
+
+# Runtime and generated data
+*.log
+*.pid
+*.sock
+*.tmp
+*.bak
+*.old
+*~
+status.json
+audit.jsonl
+backups/
+
+# IDE/editor
 .vscode/
 .idea/
 *.swp
-*~
+*.swo
 
-# Runtime data
-logs/
-backups/
-state/
-*.db
-*.sqlite
-*.sqlite3
+# OS metadata
+.DS_Store
+Thumbs.db
 
-# Local configuration
+# Local developer configuration
 .env
-*.local.json
+.env.*
+!.env.example
+local/
+private/
+secrets/

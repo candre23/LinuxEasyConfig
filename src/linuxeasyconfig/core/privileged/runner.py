@@ -25,16 +25,13 @@ class PrivilegedRunner:
     ) -> str:
         payload_path = self._write_payload(task)
 
+        helper_command = self._helper_command(
+            payload_path
+        )
+
         try:
             result = subprocess.run(
-                [
-                    "pkexec",
-                    sys.executable,
-                    "-m",
-                    "linuxeasyconfig.core.privileged.helper",
-                    "--payload",
-                    str(payload_path),
-                ],
+                helper_command,
                 capture_output=True,
                 text=True,
                 timeout=timeout,
@@ -55,6 +52,34 @@ class PrivilegedRunner:
             raise PrivilegedTaskError(message)
 
         return result.stdout.strip()
+
+    @staticmethod
+    def _helper_command(
+        payload_path: Path,
+    ) -> list[str]:
+        installed_helper = Path(
+            "/usr/libexec/linuxeasyconfig/"
+            "lec-privileged-helper"
+        )
+
+        if installed_helper.is_file():
+            return [
+                "pkexec",
+                str(installed_helper),
+                "--payload",
+                str(payload_path),
+            ]
+
+        # Development-tree fallback.
+        return [
+            "pkexec",
+            sys.executable,
+            "-B",
+            "-m",
+            "linuxeasyconfig.core.privileged.helper",
+            "--payload",
+            str(payload_path),
+        ]
 
     @staticmethod
     def _write_payload(task: PrivilegedTask) -> Path:

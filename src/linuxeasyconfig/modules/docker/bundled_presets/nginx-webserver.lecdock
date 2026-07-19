@@ -1,0 +1,83 @@
+{
+  "format_version": 1,
+  "id": "org.nginx.webserver",
+  "name": "Nginx Web Server",
+  "version": "stable-alpine",
+  "type": "compose",
+  "description": "Deploy the official Nginx web server in Docker. Use it to host static websites, serve files, or provide a lightweight HTTP endpoint for local-network or reverse-proxy access.",
+  "homepage": "https://nginx.org/",
+  "fields": [
+    {
+      "id": "application_name",
+      "label": "Application name",
+      "type": "text",
+      "default": "nginx",
+      "required": true,
+      "help": "Used for the Compose project and container name."
+    },
+    {
+      "id": "host_port",
+      "label": "Host web port",
+      "type": "port",
+      "default": 8080,
+      "required": true
+    },
+    {
+      "id": "access_scope",
+      "label": "Network access",
+      "type": "choice",
+      "default": "localhost",
+      "choices": [
+        {
+          "label": "Local or reverse proxy only (recommended)",
+          "value": "localhost"
+        },
+        {
+          "label": "Local network",
+          "value": "local_network"
+        },
+        {
+          "label": "All networks (not recommended)",
+          "value": "all_networks"
+        }
+      ]
+    },
+    {
+      "id": "allow_firewall",
+      "label": "Create local-network Firewall rule",
+      "type": "boolean",
+      "default": true,
+      "help": "Used only when Network access is Local network."
+    },
+    {
+      "id": "publish_reverse_proxy",
+      "label": "Publish through Reverse Proxy",
+      "type": "boolean",
+      "default": false,
+      "help": "Forces Local or reverse proxy only access and creates a Caddy route."
+    },
+    {
+      "id": "public_host",
+      "label": "Public hostname",
+      "type": "text",
+      "default": "",
+      "placeholder": "www.example.com",
+      "help": "Required only when publishing through Reverse Proxy."
+    },
+    {
+      "id": "proxy_login",
+      "label": "Require a Caddy login",
+      "type": "boolean",
+      "default": false
+    }
+  ],
+  "compose": {
+    "template": "services:\n  nginx:\n    image: nginx:stable-alpine\n    container_name: {{application_name}}\n    restart: unless-stopped\n    ports:\n      - \"{{bind_address}}:{{host_port}}:80\"\n"
+  },
+  "service": {
+    "protocol": "http",
+    "transport_protocol": "tcp",
+    "container_port": 80,
+    "reverse_proxy_compatible": true
+  }
+}

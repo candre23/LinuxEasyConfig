@@ -1298,17 +1298,48 @@ class DockerView(QWidget):
         if name is None:
             return
 
+        managed = next(
+            (
+                item
+                for item in self._repository.managed_containers()
+                if item.name == name
+            ),
+            None,
+        )
+
         dialog = QDialog(self)
         dialog.setWindowTitle("Remove Container")
-        dialog.resize(560, 280)
+        dialog.resize(590, 360)
 
         explanation = QLabel(
             f"Remove container {name}?\n\n"
             "The container itself will be deleted. "
-            "Choose whether to also remove its image "
-            "and attached data."
+            "Choose whether to remove associated resources, "
+            "its image, and attached data."
         )
         explanation.setWordWrap(True)
+
+        remove_firewall = QCheckBox(
+            "Remove the Firewall rule created for this container"
+        )
+        remove_proxy = QCheckBox(
+            "Remove the Reverse Proxy rule created for this container"
+        )
+
+        firewall_available = bool(
+            managed is not None
+            and managed.firewall_rule_created
+        )
+        proxy_available = bool(
+            managed is not None
+            and managed.reverse_proxy_rule_created
+            and managed.reverse_proxy_rule_name
+        )
+
+        remove_firewall.setChecked(firewall_available)
+        remove_firewall.setVisible(firewall_available)
+        remove_proxy.setChecked(proxy_available)
+        remove_proxy.setVisible(proxy_available)
 
         remove_image = QCheckBox(
             "Also delete the container image"
@@ -1336,6 +1367,16 @@ class DockerView(QWidget):
 
         layout = QVBoxLayout(dialog)
         layout.addWidget(explanation)
+
+        if firewall_available or proxy_available:
+            resources = QLabel(
+                "Resources created by LEC for this container:"
+            )
+            resources.setWordWrap(True)
+            layout.addWidget(resources)
+            layout.addWidget(remove_firewall)
+            layout.addWidget(remove_proxy)
+
         layout.addWidget(remove_image)
         layout.addWidget(remove_data)
         layout.addWidget(data_warning)
@@ -1362,20 +1403,51 @@ class DockerView(QWidget):
             if confirmation != QMessageBox.StandardButton.Yes:
                 return
 
-        self._run_task(
-            "docker.remove_container",
-            {
-                "container": name,
-                "force": True,
-                "remove_volumes": True,
-                "remove_image": (
-                    remove_image.isChecked()
-                ),
-                "remove_data": (
-                    remove_data.isChecked()
-                ),
-            },
+        tasks: list[PrivilegedTask] = []
+
+        if remove_firewall.isChecked() and managed is not None:
+            tasks.append(
+                PrivilegedTask(
+                    "firewall.remove_docker_service",
+                    {
+                        "container": managed.name,
+                        "host_port": managed.host_port,
+                        "protocol": managed.protocol,
+                    },
+                )
+            )
+
+        if remove_proxy.isChecked() and managed is not None:
+            tasks.append(
+                PrivilegedTask(
+                    "reverse_proxy.rule_delete",
+                    {
+                        "name": managed.reverse_proxy_rule_name,
+                    },
+                )
+            )
+
+        tasks.append(
+            PrivilegedTask(
+                "docker.remove_container",
+                {
+                    "container": name,
+                    "force": True,
+                    "remove_volumes": True,
+                    "remove_image": remove_image.isChecked(),
+                    "remove_data": remove_data.isChecked(),
+                },
+            )
+        )
+
+        self._run_sequence(
+            tasks,
             "Container Removed",
+            timeout=600,
+            long_operation=(
+                remove_data.isChecked()
+                or remove_image.isChecked()
+            ),
         )
 
     def _view_logs(self) -> None:
@@ -1530,6 +1602,22 @@ class DockerView(QWidget):
                         },
                     )
                 )
+
+        tasks.append(
+            PrivilegedTask(
+                "docker.record_integrations",
+                {
+                    "container": self._name.text(),
+                    "firewall_rule_created": self._firewall.isChecked(),
+                    "reverse_proxy_rule_created": self._proxy.isChecked(),
+                    "reverse_proxy_rule_name": (
+                        "Docker " + self._name.text()
+                        if self._proxy.isChecked()
+                        else ""
+                    ),
+                },
+            )
+        )
 
         self._run_sequence(
             tasks,
@@ -1756,6 +1844,25 @@ class DockerView(QWidget):
                     },
                 )
             )
+
+        tasks.append(
+            PrivilegedTask(
+                "docker.record_integrations",
+                {
+                    "container": application_name,
+                    "firewall_rule_created": (
+                        access_scope == "local_network"
+                        and allow_firewall
+                    ),
+                    "reverse_proxy_rule_created": publish_proxy,
+                    "reverse_proxy_rule_name": (
+                        "Docker " + application_name
+                        if publish_proxy
+                        else ""
+                    ),
+                },
+            )
+        )
 
         self._run_sequence(
             tasks,

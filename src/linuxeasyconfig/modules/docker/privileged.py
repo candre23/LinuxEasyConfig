@@ -12,6 +12,7 @@ from .installer import (
     install_docker,
     refresh_snapshot,
     remove_container,
+    record_container_integrations,
     service_action,
 )
 
@@ -177,6 +178,23 @@ def _deploy_preset(
         values=values,
     )
 
+def _record_integrations(
+    arguments: dict[str, Any],
+) -> str:
+    return record_container_integrations(
+        container=required_string(arguments, "container"),
+        firewall_rule_created=bool(
+            arguments.get("firewall_rule_created", False)
+        ),
+        reverse_proxy_rule_created=bool(
+            arguments.get("reverse_proxy_rule_created", False)
+        ),
+        reverse_proxy_rule_name=str(
+            arguments.get("reverse_proxy_rule_name", "")
+        ),
+    )
+
+
 def _logs(arguments: dict[str, Any]) -> str:
     lines = arguments.get("lines", 200)
 
@@ -202,5 +220,6 @@ PRIVILEGED_TASKS = {
     "docker.remove_container": _remove,
     "docker.create_container": _create,
     "docker.deploy_preset": _deploy_preset,
+    "docker.record_integrations": _record_integrations,
     "docker.container_logs": _logs,
 }

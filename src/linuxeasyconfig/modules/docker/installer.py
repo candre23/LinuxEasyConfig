@@ -17,6 +17,7 @@ from .presets import validate_preset
 from .storage import (
     ManagedContainer,
     remove_managed_container,
+    update_managed_container_integrations,
     upsert_managed_container,
 )
 
@@ -655,6 +656,28 @@ def create_container(
     refresh_snapshot()
 
     return f"Container {name} was created and started."
+
+
+def record_container_integrations(
+    *,
+    container: str,
+    firewall_rule_created: bool,
+    reverse_proxy_rule_created: bool,
+    reverse_proxy_rule_name: str,
+) -> str:
+    _validate_container_reference(container)
+
+    update_managed_container_integrations(
+        name=container,
+        firewall_rule_created=firewall_rule_created,
+        reverse_proxy_rule_created=reverse_proxy_rule_created,
+        reverse_proxy_rule_name=reverse_proxy_rule_name,
+    )
+
+    return (
+        f"Integration metadata for {container} "
+        "was updated."
+    )
 
 
 def container_logs(

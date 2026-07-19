@@ -12,7 +12,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from jsonschema import Draft202012Validator
-from platformdirs import user_cache_path
+from platformdirs import user_cache_path, user_data_path
 
 from linuxeasyconfig.core.manifest_schema import MANIFEST_SCHEMA
 from linuxeasyconfig.core.module_api import LECModule
@@ -23,6 +23,11 @@ _CACHE_ROOT = user_cache_path(
     "linuxeasyconfig",
     appauthor=False,
 ) / "module-cache"
+
+USER_MODULES_DIRECTORY = user_data_path(
+    "linuxeasyconfig",
+    appauthor=False,
+) / "modules"
 
 
 @dataclass(frozen=True)
@@ -85,6 +90,7 @@ def _load_module_instance(
 
 def discover_modules(
     modules_directory: Path,
+    user_modules_directory: Path | None = None,
 ) -> tuple[
     list[ModuleRecord],
     list[ModuleLoadError],
@@ -95,17 +101,12 @@ def discover_modules(
     if not modules_directory.exists():
         return modules, errors
 
-    validator = Draft202012Validator(
-        MANIFEST_SCHEMA
-    )
-
+    validator = Draft202012Validator(MANIFEST_SCHEMA)
     _prepare_archive_import_path()
 
-    folder_records, folder_errors = (
-        _discover_folder_modules(
-            modules_directory,
-            validator,
-        )
+    folder_records, folder_errors = _discover_folder_modules(
+        modules_directory,
+        validator,
     )
     modules.extend(folder_records)
     errors.extend(folder_errors)
@@ -115,18 +116,28 @@ def discover_modules(
         for record in folder_records
     }
 
-    archive_records, archive_errors = (
-        _discover_archive_modules(
-            modules_directory,
+    if user_modules_directory is not None:
+        user_records, user_errors = _discover_archive_modules(
+            user_modules_directory,
             validator,
-            loaded_ids,
+            excluded_ids=loaded_ids,
         )
+        modules.extend(user_records)
+        errors.extend(user_errors)
+        loaded_ids.update(
+            str(record.manifest["id"])
+            for record in user_records
+        )
+
+    archive_records, archive_errors = _discover_archive_modules(
+        modules_directory,
+        validator,
+        excluded_ids=loaded_ids,
     )
     modules.extend(archive_records)
     errors.extend(archive_errors)
 
     return modules, errors
-
 
 def _discover_folder_modules(
     modules_directory: Path,
@@ -172,7 +183,7 @@ def _discover_folder_modules(
 def _discover_archive_modules(
     modules_directory: Path,
     validator: Draft202012Validator,
-    folder_module_ids: set[str],
+    excluded_ids: set[str],
 ) -> tuple[
     list[ModuleRecord],
     list[ModuleLoadError],
@@ -181,58 +192,13 @@ def _discover_archive_modules(
     errors: list[ModuleLoadError] = []
     archive_ids: set[str] = set()
 
-    archives = sorted(
-        path
-        for path in modules_directory.iterdir()
-        if path.is_file()
-        and path.suffix.lower() == _ARCHIVE_SUFFIX
-    )
+    if not modules_directory.is_dir():
+        return modules, errors
 
-    for archive_path in archives:
-        try:
-            extracted_path = (
-                _extract_archive_to_cache(
-                    archive_path
-                )
-            )
-        except (
-            OSError,
-            ValueError,
-            zipfile.BadZipFile,
-        ) as exc:
-            errors.append(
-                ModuleLoadError(
-                    module_path=archive_path,
-                    message=(
-                        "Could not prepare packaged "
-                        f"module: {exc}"
-                    ),
-                )
-            )
-            continue
-
-        manifest_path = (
-            extracted_path / "manifest.json"
-        )
-
-        if not manifest_path.is_file():
-            errors.append(
-                ModuleLoadError(
-                    module_path=archive_path,
-                    message=(
-                        "The .lec archive does not "
-                        "contain manifest.json at its "
-                        "root."
-                    ),
-                )
-            )
-            continue
-
-        manifest, manifest_error = (
-            _read_and_validate_manifest(
-                manifest_path,
-                validator,
-            )
+    for archive_path in sorted(modules_directory.glob("*.lec")):
+        manifest, manifest_error = _read_archive_manifest(
+            archive_path,
+            validator,
         )
 
         if manifest_error is not None:
@@ -247,9 +213,7 @@ def _discover_archive_modules(
         assert manifest is not None
         module_id = str(manifest["id"])
 
-        if module_id in folder_module_ids:
-            # Development folders intentionally
-            # override packaged copies.
+        if module_id in excluded_ids:
             continue
 
         if module_id in archive_ids:
@@ -257,17 +221,28 @@ def _discover_archive_modules(
                 ModuleLoadError(
                     module_path=archive_path,
                     message=(
-                        "Another packaged module with "
-                        f"ID {module_id!r} was already "
-                        "loaded."
+                        "Another packaged module with ID "
+                        f"{module_id!r} was already loaded "
+                        "from this module source."
                     ),
+                )
+            )
+            continue
+
+        try:
+            extracted_path = _extract_archive_to_cache(archive_path)
+        except (OSError, ValueError, zipfile.BadZipFile) as exc:
+            errors.append(
+                ModuleLoadError(
+                    module_path=archive_path,
+                    message=f"Could not prepare packaged module: {exc}",
                 )
             )
             continue
 
         record, error = _load_record(
             module_path=extracted_path,
-            manifest_path=manifest_path,
+            manifest_path=extracted_path / "manifest.json",
             validator=validator,
             source_path=archive_path,
             packaged=True,
@@ -284,6 +259,75 @@ def _discover_archive_modules(
 
     return modules, errors
 
+
+def _read_archive_manifest(
+    archive_path: Path,
+    validator: Draft202012Validator,
+) -> tuple[dict[str, Any] | None, str | None]:
+    try:
+        with zipfile.ZipFile(archive_path, "r") as archive:
+            members = archive.infolist()
+            if not members:
+                return None, "The .lec archive is empty."
+
+            for member in members:
+                _validated_member_path(member)
+
+            try:
+                raw = archive.read("manifest.json")
+            except KeyError:
+                return None, (
+                    "The .lec archive does not contain "
+                    "manifest.json at its root."
+                )
+
+        manifest = json.loads(raw.decode("utf-8"))
+    except (
+        OSError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        ValueError,
+        zipfile.BadZipFile,
+    ) as exc:
+        return None, f"Could not read packaged module: {exc}"
+
+    validation_errors = sorted(
+        validator.iter_errors(manifest),
+        key=lambda error: list(error.absolute_path),
+    )
+
+    if validation_errors:
+        messages: list[str] = []
+        for error in validation_errors:
+            location = ".".join(
+                str(part) for part in error.absolute_path
+            )
+            messages.append(
+                f"{location or 'manifest'}: {error.message}"
+            )
+        return None, "; ".join(messages)
+
+    return manifest, None
+
+
+def inspect_module_archive(archive_path: Path) -> dict[str, Any]:
+    """Validate a .lec archive and return its manifest."""
+    if archive_path.suffix.lower() != _ARCHIVE_SUFFIX:
+        raise ValueError("Module files must use the .lec extension.")
+
+    manifest, error = _read_archive_manifest(
+        archive_path,
+        Draft202012Validator(MANIFEST_SCHEMA),
+    )
+    if error is not None:
+        raise ValueError(error)
+
+    assert manifest is not None
+    return manifest
+
+
+def safe_module_package_name(value: str) -> str:
+    return _safe_module_directory_name(value)
 
 def _load_record(
     *,
@@ -435,16 +479,23 @@ def _extract_archive_to_cache(
     safe_stem = _safe_module_directory_name(
         archive_path.stem
     )
-    destination = (
-        _CACHE_ROOT
-        / f"{safe_stem}-{digest[:16]}"
-    )
-    completion_marker = (
-        destination / ".lec-complete"
-    )
+    # The extracted directory name must exactly match the Python
+    # package name. linuxeasyconfig.modules.__path__ points at
+    # _CACHE_ROOT, so dynamic_dns must live at _CACHE_ROOT/dynamic_dns.
+    destination = _CACHE_ROOT / safe_stem
+    completion_marker = destination / ".lec-complete"
 
     if completion_marker.is_file():
-        return destination
+        try:
+            if (
+                completion_marker.read_text(
+                    encoding="utf-8"
+                ).strip()
+                == digest
+            ):
+                return destination
+        except OSError:
+            pass
 
     temporary = destination.with_name(
         destination.name + ".tmp"
@@ -603,14 +654,9 @@ def _safe_module_directory_name(
 
 def active_module_package_names(
     modules_directory: Path,
+    user_modules_directory: Path | None = None,
 ) -> tuple[list[str], list[ModuleLoadError]]:
-    """
-    Return the import-package names for the active module set without
-    instantiating module classes.
-
-    Development folders take precedence over .lec archives with the
-    same manifest ID. Packaged modules are extracted and made importable.
-    """
+    """Return import package names for the active module set."""
     names: list[str] = []
     errors: list[ModuleLoadError] = []
 
@@ -619,17 +665,14 @@ def active_module_package_names(
 
     validator = Draft202012Validator(MANIFEST_SCHEMA)
     _prepare_archive_import_path()
-
-    folder_ids: set[str] = set()
+    selected_ids: set[str] = set()
 
     for module_path in sorted(
         path
         for path in modules_directory.iterdir()
-        if path.is_dir()
-        and not path.name.startswith(".")
+        if path.is_dir() and not path.name.startswith(".")
     ):
         manifest_path = module_path / "manifest.json"
-
         if not manifest_path.is_file():
             continue
 
@@ -637,86 +680,71 @@ def active_module_package_names(
             manifest_path,
             validator,
         )
-
         if manifest_error is not None:
             errors.append(
-                ModuleLoadError(
-                    module_path=module_path,
-                    message=manifest_error,
-                )
+                ModuleLoadError(module_path, manifest_error)
             )
             continue
 
         assert manifest is not None
-        folder_ids.add(str(manifest["id"]))
+        selected_ids.add(str(manifest["id"]))
         names.append(module_path.name)
 
-    archive_ids: set[str] = set()
+    archive_sources: list[Path] = []
+    if user_modules_directory is not None:
+        archive_sources.append(user_modules_directory)
+    archive_sources.append(modules_directory)
 
-    for archive_path in sorted(
-        path
-        for path in modules_directory.iterdir()
-        if path.is_file()
-        and path.suffix.lower() == _ARCHIVE_SUFFIX
-    ):
-        try:
-            extracted_path = _extract_archive_to_cache(
-                archive_path
+    for source_directory in archive_sources:
+        if not source_directory.is_dir():
+            continue
+
+        source_ids: set[str] = set()
+        for archive_path in sorted(source_directory.glob("*.lec")):
+            manifest, manifest_error = _read_archive_manifest(
+                archive_path,
+                validator,
             )
-        except (
-            OSError,
-            ValueError,
-            zipfile.BadZipFile,
-        ) as exc:
-            errors.append(
-                ModuleLoadError(
-                    module_path=archive_path,
-                    message=(
-                        "Could not prepare packaged module: "
-                        f"{exc}"
-                    ),
+            if manifest_error is not None:
+                errors.append(
+                    ModuleLoadError(archive_path, manifest_error)
                 )
-            )
-            continue
+                continue
 
-        manifest_path = extracted_path / "manifest.json"
-        manifest, manifest_error = _read_and_validate_manifest(
-            manifest_path,
-            validator,
-        )
+            assert manifest is not None
+            module_id = str(manifest["id"])
+            if module_id in selected_ids:
+                continue
 
-        if manifest_error is not None:
-            errors.append(
-                ModuleLoadError(
-                    module_path=archive_path,
-                    message=manifest_error,
+            if module_id in source_ids:
+                errors.append(
+                    ModuleLoadError(
+                        archive_path,
+                        (
+                            "Another packaged module with ID "
+                            f"{module_id!r} was already selected "
+                            "from this module source."
+                        ),
+                    )
                 )
-            )
-            continue
+                continue
 
-        assert manifest is not None
-        module_id = str(manifest["id"])
-
-        if module_id in folder_ids:
-            continue
-
-        if module_id in archive_ids:
-            errors.append(
-                ModuleLoadError(
-                    module_path=archive_path,
-                    message=(
-                        "Another packaged module with ID "
-                        f"{module_id!r} was already selected."
-                    ),
+            try:
+                extracted_path = _extract_archive_to_cache(archive_path)
+            except (OSError, ValueError, zipfile.BadZipFile) as exc:
+                errors.append(
+                    ModuleLoadError(
+                        archive_path,
+                        f"Could not prepare packaged module: {exc}",
+                    )
                 )
-            )
-            continue
+                continue
 
-        archive_ids.add(module_id)
-        names.append(extracted_path.name)
+            source_ids.add(module_id)
+            selected_ids.add(module_id)
+            names.append(extracted_path.name)
 
     return names, errors
-
 
 def clear_packaged_module_cache() -> None:
     """

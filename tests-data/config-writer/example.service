@@ -1,5 +1,0 @@
-[Unit]
-Description=New version
-
-[Service]
-ExecStart=/usr/bin/sleep infinity

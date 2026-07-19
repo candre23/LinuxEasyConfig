@@ -11,6 +11,7 @@ from typing import Any
 import linuxeasyconfig.modules as modules_package
 
 from linuxeasyconfig.core.module_loader import (
+    USER_MODULES_DIRECTORY,
     active_module_package_names,
 )
 
@@ -36,7 +37,8 @@ def discover_privileged_tasks() -> Registry:
 
     modules_directory = _modules_directory()
     package_names, load_errors = active_module_package_names(
-        modules_directory
+        modules_directory,
+        USER_MODULES_DIRECTORY,
     )
 
     if load_errors:

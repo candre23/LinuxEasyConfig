@@ -42,7 +42,17 @@ class DockerPreset:
 def preset_directories() -> list[tuple[Path, str]]:
     directories: list[tuple[Path, str]] = []
 
-    # Source-tree location used during development.
+    # Presets stored inside the Docker module. This works both from
+    # an unpacked development module and an extracted .lec archive.
+    directories.append(
+        (
+            Path(__file__).resolve().parent
+            / "bundled_presets",
+            "Included with LEC",
+        )
+    )
+
+    # Legacy source-tree location used during development.
     try:
         repository_root = Path(__file__).resolve().parents[4]
         directories.append(

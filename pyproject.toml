@@ -20,10 +20,17 @@ lec = "linuxeasyconfig.app:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["linuxeasyconfig*"]
+exclude = ["linuxeasyconfig.modules.*"]
+
+[tool.setuptools.package-data]
+linuxeasyconfig = [
+    "modules/*.lec",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

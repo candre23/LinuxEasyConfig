@@ -1,5 +1,0 @@
-[Unit]
-Description=Revision two
-
-[Service]
-ExecStart=/usr/bin/sleep infinity

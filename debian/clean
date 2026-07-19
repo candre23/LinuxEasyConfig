@@ -1,0 +1,5 @@
+build/
+dist/
+src/*.egg-info/
+src/linuxeasyconfig.egg-info/
+src/linuxeasyconfig/modules/*.lec

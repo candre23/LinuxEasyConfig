@@ -1,0 +1,17 @@
+#!/usr/bin/make -f
+
+export PYBUILD_NAME=linuxeasyconfig
+export PYTHONDONTWRITEBYTECODE=1
+
+%:
+	dh $@ --buildsystem=pybuild
+
+override_dh_auto_build:
+	set -e; \
+	python3 -B tools/build_builtin_modules.py; \
+	trap 'python3 -B tools/build_builtin_modules.py --clean' EXIT; \
+	dh_auto_build --buildsystem=pybuild
+
+override_dh_auto_clean:
+	python3 -B tools/build_builtin_modules.py --clean || true
+	dh_auto_clean --buildsystem=pybuild
