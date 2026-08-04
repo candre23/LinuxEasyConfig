@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "linuxeasyconfig"
-version = "1.0.0"
+version = "1.0.1"
 description = "Linux Easy Config, a modular graphical configuration framework for Ubuntu and Linux Mint"
 requires-python = ">=3.12"
 dependencies = [

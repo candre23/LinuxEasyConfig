@@ -10,6 +10,8 @@ import argparse
 import importlib
 import importlib.util
 import json
+import os
+import pwd
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
@@ -37,14 +39,16 @@ def discover_privileged_tasks() -> Registry:
     Development folders take precedence over packaged .lec copies.
     Packaged modules are extracted into LEC's module cache before
     providers are imported.
-    """
 
+    When invoked through pkexec, use the original desktop user's module
+    directory rather than root's user-data directory.
+    """
     registry: Registry = {}
 
     modules_directory = _modules_directory()
     package_names, load_errors = active_module_package_names(
         modules_directory,
-        USER_MODULES_DIRECTORY,
+        _invoking_user_modules_directory(),
     )
 
     if load_errors:
@@ -130,6 +134,39 @@ def execute_task(
         )
 
     return result
+
+
+def _invoking_user_modules_directory() -> Path:
+    """
+    Resolve packaged modules for the desktop user who invoked pkexec.
+
+    Without this, USER_MODULES_DIRECTORY is evaluated while the helper is
+    running as root and points beneath /root. Packaged modules installed by
+    the desktop user are then invisible to privileged-task discovery.
+    """
+    if os.geteuid() != 0:
+        return USER_MODULES_DIRECTORY
+
+    raw_uid = os.environ.get("PKEXEC_UID", "").strip()
+    if not raw_uid.isdigit():
+        return USER_MODULES_DIRECTORY
+
+    try:
+        account = pwd.getpwuid(int(raw_uid))
+    except (KeyError, ValueError):
+        return USER_MODULES_DIRECTORY
+
+    home = Path(account.pw_dir)
+    if not home.is_absolute():
+        return USER_MODULES_DIRECTORY
+
+    return (
+        home
+        / ".local"
+        / "share"
+        / "linuxeasyconfig"
+        / "modules"
+    )
 
 
 def _modules_directory() -> Path:

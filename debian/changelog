@@ -1,3 +1,10 @@
+linuxeasyconfig (1.0.1) unstable; urgency=medium
+
+  * Fix privileged task discovery for user-installed modules when
+    operations are elevated through pkexec.
+
+ -- Linux Easy Config Project <candre23@users.noreply.github.com>  Tue, 04 Aug 2026 17:49:56 +0000
+
 linuxeasyconfig (1.0.0) unstable; urgency=medium
 
   * Initial public release.
