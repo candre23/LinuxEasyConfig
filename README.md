@@ -231,12 +231,12 @@ With great power comes great responsibility.  Linux will happily allow you to ir
 
 ## Documentation
 
+- [User Manual](docs/USER_MANUAL.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Module development](docs/MODULE_DEVELOPMENT.md)
 - [Audited configuration API](docs/AUDITED_CONFIGURATION_API.md)
 - [Dynamic DNS provider plugins](docs/DYNAMIC_DNS_PROVIDER_PLUGINS.md)
 - [Docker presets](docs/DOCKER_PRESETS.md)
-- [Release process](docs/RELEASE_PROCESS.md)
 
 ---
 
