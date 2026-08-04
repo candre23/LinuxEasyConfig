@@ -240,4 +240,6 @@ It is not intended to replace a working application GUI or web interface. When a
 
 ## License
 
-License information will be provided in [`LICENSE`](LICENSE).
+Linux Easy Config is released into the public domain under the [`Unlicense`](LICENSE).   
+Copyleft 2026   
+No Rights Reserved
