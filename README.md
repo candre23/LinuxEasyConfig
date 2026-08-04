@@ -6,8 +6,11 @@ Modern desktop users should not need to memorize terminal commands, edit protect
 
 LEC is built for people who want the flexibility of Linux without having to become a Linux administrator first.
 
-> **Supported platforms:** Ubuntu Desktop 26.04 LTS; Ubuntu Desktop 24.04 LTS and Linux Mint 22.3 with the optional compatibility runtime
-> **Interface:** Native PySide6 / Qt desktop application
+> **Supported platforms:**
+> - Ubuntu Desktop 26.04 LTS
+> - Ubuntu Desktop 24.04 LTS and Linux Mint 22.3 with the optional compatibility runtime
+>    
+> **Interface:** Native PySide6 / Qt desktop application   
 > **Release:** 1.0.0
 
 ---
@@ -205,6 +208,14 @@ Dynamic DNS providers can be extended with trusted Python adapters.
 See:
 
 - [`docs/DYNAMIC_DNS_PROVIDER_PLUGINS.md`](docs/DYNAMIC_DNS_PROVIDER_PLUGINS.md)
+
+---
+
+## AI & Safety Disclaimer
+
+The code and documentation included in this project is primarily vibeslop. The human writing this sentence in particular can barely code and doesn't really understand how any of this works. It Works On My Machine and hasn't caused my genitals to explode, but your mileage may vary. I make absolutely no guarantee as to the safety or security of the contents of this project. Use at your own risk. Or don't.
+
+With great power comes great responsibility.  Linux will happily allow you to irreparably fuck up your machine.  LEC attempts to minimize the capacity for self-harm, but if you're determined to make a mess, you absolutely still can.  If you do, that's on you.
 
 ---
 
