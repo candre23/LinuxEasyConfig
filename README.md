@@ -15,6 +15,16 @@ LEC is built for people who want the flexibility of Linux without having to beco
 
 ---
 
+<img width="1189" height="993" alt="lec1" src="https://github.com/user-attachments/assets/67c3bf8c-a283-469f-a991-3e94c4ae034e" />
+
+<img width="1191" height="992" alt="lec2" src="https://github.com/user-attachments/assets/0151dfa3-bcc4-44cb-8206-69e0b70bceee" />
+
+<img width="1190" height="990" alt="lec3" src="https://github.com/user-attachments/assets/b94ae441-a2d6-4a57-a8ec-1291b2d2822e" />
+
+<img width="1193" height="996" alt="lec4" src="https://github.com/user-attachments/assets/1bbe8832-4376-4e0d-a6ce-8700d008a97c" />
+
+---
+
 ## What LEC Does
 
 LEC replaces many command-line and configuration-file workflows with purpose-built graphical tools.
