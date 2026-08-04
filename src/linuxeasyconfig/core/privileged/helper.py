@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+from linuxeasyconfig.bootstrap import (
+    enable_compat_runtime,
+)
+
+enable_compat_runtime()
+
 import argparse
 import importlib
 import importlib.util

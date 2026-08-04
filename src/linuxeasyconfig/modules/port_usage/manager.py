@@ -39,7 +39,8 @@ def install_monitor() -> str:
             "[Service]\n"
             "Type=oneshot\n"
             f"Environment=PYTHONPATH={package_root}\n"
-            f"ExecStart={interpreter} -m "
+            "Environment=PYTHONDONTWRITEBYTECODE=1\n"
+            f"ExecStart={interpreter} -B -m "
             "linuxeasyconfig.modules.port_usage.snapshot_runner\n"
         ),
         mode=0o644,

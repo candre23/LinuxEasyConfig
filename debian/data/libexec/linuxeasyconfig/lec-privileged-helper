@@ -1,2 +1,14 @@
 #!/bin/sh
-exec /usr/bin/python3 -B -m linuxeasyconfig.core.privileged.helper "$@"
+
+COMPAT_RUNTIME=/opt/linuxeasyconfig/qt-runtime
+
+if [ -d "$COMPAT_RUNTIME" ]; then
+    if [ -n "${PYTHONPATH:-}" ]; then
+        export PYTHONPATH="$COMPAT_RUNTIME:$PYTHONPATH"
+    else
+        export PYTHONPATH="$COMPAT_RUNTIME"
+    fi
+fi
+
+exec /usr/bin/python3 -B \
+    -m linuxeasyconfig.core.privileged.helper "$@"

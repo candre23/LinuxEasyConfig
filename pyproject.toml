@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "linuxeasyconfig"
-version = "0.1.0"
-description = "Linux Easy Config, a modular graphical configuration framework for Ubuntu"
-requires-python = ">=3.14"
+version = "1.0.0"
+description = "Linux Easy Config, a modular graphical configuration framework for Ubuntu and Linux Mint"
+requires-python = ">=3.12"
 dependencies = [
     "PySide6",
     "jsonschema",
@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
-lec = "linuxeasyconfig.app:main"
+lec = "linuxeasyconfig.bootstrap:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

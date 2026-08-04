@@ -182,7 +182,7 @@ Most users do not need to act on this information. It is mainly useful for troub
 
 Shows the detected operating system and version.
 
-LEC is designed for Ubuntu Desktop 26.04 LTS. If the reported platform is different, some modules may not work as expected.
+LEC 1.0.0 supports Ubuntu Desktop 26.04 LTS natively. Ubuntu Desktop 24.04 LTS and Linux Mint 22.3 are supported with the optional LEC Qt compatibility runtime. Other distributions are not supported by this release and some modules may not work as expected.
 
 ### Installation Path
 
@@ -330,6 +330,10 @@ When enabled, modules may reveal controls such as:
 Enabling advanced options does not change the system by itself. It only changes what LEC displays.
 
 Leave this disabled unless you need the additional controls.
+
+### Add or Remove LEC Modules
+
+Custom application modules can be added and removed from the LEC interface using these buttons.  The default built-in system modules may also be updated by installing newer system modules. Default modules may not be removed, as doing so would break module interoperability.
 
 ## 1.4 Recovery Tab
 

@@ -2,7 +2,7 @@
   "format_version": 1,
   "id": "org.linuxeasyconfig.user_permissions",
   "name": "User Permissions",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "Create service accounts, manage local groups, and control folder access.",
   "module_type": "extended",
   "entry_point": "module:UserPermissionsModule"

@@ -1,0 +1,44 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    purge)
+        for unit in \
+            lec-dynamic-dns.timer \
+            lec-dynamic-dns.service \
+            lec-port-usage.timer \
+            lec-port-usage.service \
+            lec-docker-firewall.service \
+            lec-task-scheduler-scan.timer \
+            lec-task-scheduler-scan.service
+        do
+            systemctl disable --now "$unit" >/dev/null 2>&1 || true
+        done
+
+        if command -v iptables >/dev/null 2>&1; then
+            iptables -D DOCKER-USER -j LEC-DOCKER >/dev/null 2>&1 || true
+            iptables -F LEC-DOCKER >/dev/null 2>&1 || true
+            iptables -X LEC-DOCKER >/dev/null 2>&1 || true
+        fi
+
+        rm -f \
+            /etc/systemd/system/lec-dynamic-dns.service \
+            /etc/systemd/system/lec-dynamic-dns.timer \
+            /etc/systemd/system/lec-port-usage.service \
+            /etc/systemd/system/lec-port-usage.timer \
+            /etc/systemd/system/lec-docker-firewall.service \
+            /etc/systemd/system/lec-task-scheduler-scan.service \
+            /etc/systemd/system/lec-task-scheduler-scan.timer \
+            /usr/local/sbin/lec-docker-firewall-apply
+
+        rm -rf \
+            /etc/linuxeasyconfig \
+            /var/lib/linuxeasyconfig \
+            /var/log/linuxeasyconfig
+
+        systemctl daemon-reload >/dev/null 2>&1 || true
+        systemctl reset-failed >/dev/null 2>&1 || true
+        ;;
+esac
+
+exit 0

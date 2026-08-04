@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.candre23.LinuxEasyConfig</id>
+
+  <name>Linux Easy Config</name>
+  <summary>Graphical tools for common Linux configuration tasks</summary>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Unlicense</project_license>
+
+  <description>
+    <p>
+      Linux Easy Config provides a modular graphical interface for
+      common Linux system administration and configuration tasks.
+    </p>
+    <p>
+      It includes tools for services, Docker, firewalls, reverse
+      proxies, remote access, mounts, logs, scheduled tasks, user
+      permissions, port usage, and other system functions.
+    </p>
+    <p>
+      LEC is designed to make configuration tasks approachable without
+      requiring users to edit configuration files or memorize terminal
+      commands.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">
+    linuxeasyconfig.desktop
+  </launchable>
+
+  <url type="homepage">
+    https://github.com/candre23/LinuxEasyConfig
+  </url>
+
+  <url type="bugtracker">
+    https://github.com/candre23/LinuxEasyConfig/issues
+  </url>
+
+  <developer id="io.github.candre23">
+    <name>Linux Easy Config Project</name>
+  </developer>
+
+  <provides>
+    <binary>lec</binary>
+  </provides>
+
+  <categories>
+    <category>System</category>
+    <category>Settings</category>
+  </categories>
+
+  <releases>
+    <release version="1.0.0" date="2026-08-03"/>
+  </releases>
+
+  <content_rating type="oars-1.1"/>
+</component>

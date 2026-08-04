@@ -1,11 +1,12 @@
 # Linux Easy Config Architecture
 
-**Project:** Linux Easy Config  
-**Abbreviation:** LEC  
-**Python namespace:** `linuxeasyconfig`  
-**Command:** `lec`  
-**Target platform:** Ubuntu Desktop 26.04 LTS  
-**Language and toolkit:** Python 3.14, PySide6, Qt Widgets  
+**Project:** Linux Easy Config
+**Abbreviation:** LEC
+**Python namespace:** `linuxeasyconfig`
+**Command:** `lec`
+**Primary target:** Ubuntu Desktop 26.04 LTS
+**Compatibility target:** Ubuntu Desktop 24.04 LTS and Linux Mint 22.3 with the optional Qt compatibility runtime
+**Language and toolkit:** Python 3.14, PySide6, Qt Widgets
 
 ## 1. Purpose
 

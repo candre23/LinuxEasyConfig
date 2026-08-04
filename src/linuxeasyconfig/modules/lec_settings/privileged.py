@@ -8,6 +8,7 @@ from linuxeasyconfig.core.privileged.arguments import (
 )
 
 from .installer import preview_revision_backup, restore_revision
+from .uninstall import remove_component
 
 
 def _preview(
@@ -72,7 +73,16 @@ def _restore(
     )
 
 
+def _remove_component(
+    arguments: dict[str, Any],
+) -> str:
+    return remove_component(
+        required_string(arguments, "component_id")
+    )
+
+
 PRIVILEGED_TASKS = {
     "lec_settings.preview": _preview,
     "lec_settings.restore": _restore,
+    "lec_settings.remove_component": _remove_component,
 }

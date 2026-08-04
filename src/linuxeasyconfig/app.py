@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
+    QSizePolicy,
     QSplitter,
     QStackedWidget,
 )
@@ -62,6 +63,11 @@ class MainWindow(QMainWindow):
         self._feature_list.setMaximumWidth(360)
 
         self._view_stack = QStackedWidget()
+        self._view_stack.setMinimumSize(0, 0)
+        self._view_stack.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Ignored,
+        )
 
         welcome = QLabel("Select a feature from the list to begin.")
         welcome.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -83,6 +89,39 @@ class MainWindow(QMainWindow):
             self._on_feature_selected
         )
         self._select_startup_feature()
+        self._constrain_to_available_screen()
+
+    def _constrain_to_available_screen(self) -> None:
+        screen = self.screen()
+
+        if screen is None:
+            screen = QApplication.primaryScreen()
+
+        if screen is None:
+            return
+
+        available = screen.availableGeometry()
+
+        maximum_width = max(
+            640,
+            available.width(),
+        )
+        maximum_height = max(
+            480,
+            available.height(),
+        )
+
+        self.setMaximumSize(
+            maximum_width,
+            maximum_height,
+        )
+
+        current_size = self.size()
+
+        self.resize(
+            min(current_size.width(), maximum_width),
+            min(current_size.height(), maximum_height),
+        )
 
     def _populate_features(self) -> None:
         features = sorted(
@@ -330,6 +369,9 @@ def _apply_saved_appearance(
 
 def main() -> int:
     app = QApplication(sys.argv)
+    app.setApplicationName("Linux Easy Config")
+    app.setApplicationDisplayName("Linux Easy Config")
+    app.setDesktopFileName("linuxeasyconfig")
     _apply_saved_appearance(app)
 
     feature_registry = FeatureRegistry()

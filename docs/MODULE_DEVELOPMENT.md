@@ -95,7 +95,7 @@ Example:
   "format_version": 1,
   "id": "org.example.my_application",
   "name": "My Application",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Configure system integration for My Application.",
   "category": "Application",
   "entry_point": "linuxeasyconfig.modules.my_application.module:MyApplicationModule"

@@ -6,9 +6,9 @@ Modern desktop users should not need to memorize terminal commands, edit protect
 
 LEC is built for people who want the flexibility of Linux without having to become a Linux administrator first.
 
-> **Target platform:** Ubuntu Desktop 26.04 LTS  
-> **Interface:** Native PySide6 / Qt desktop application  
-> **Project status:** Feature-complete core release  
+> **Supported platforms:** Ubuntu Desktop 26.04 LTS; Ubuntu Desktop 24.04 LTS and Linux Mint 22.3 with the optional compatibility runtime
+> **Interface:** Native PySide6 / Qt desktop application
+> **Release:** 1.0.0
 
 ---
 
@@ -31,24 +31,6 @@ Instead of manually:
 LEC presents those tasks through plain-language forms, tables, status views, and guided actions.
 
 Administrative operations are performed through a controlled privileged helper rather than by running the entire application as root. Persistent configuration changes are audited and recoverable.
-
----
-
-## Screenshots
-
-<!-- Replace these placeholders with GitHub-hosted screenshots. -->
-
-### Main interface
-
-![LEC main interface](docs/images/lec-main.png)
-
-### Module view
-
-![LEC module view](docs/images/lec-module.png)
-
-### Recovery and settings
-
-![LEC recovery and settings](docs/images/lec-settings.png)
 
 ---
 
@@ -174,12 +156,19 @@ LEC does not sandbox arbitrary third-party module code. A third-party module sho
 
 ## Installation
 
-LEC is distributed as a Debian package for Ubuntu Desktop 26.04 LTS.
+LEC 1.0.0 is distributed as a Debian package. Ubuntu Desktop 26.04 LTS uses the distribution-provided Qt/PySide6 packages. Ubuntu Desktop 24.04 LTS and Linux Mint 22.3 require the separate `linuxeasyconfig-qt-runtime` compatibility package, which only needs to be installed once.
 
-After downloading the release package:
+On Ubuntu 26.04, install LEC directly:
 
 ```bash
-sudo apt install ./linuxeasyconfig_VERSION_all.deb
+sudo apt install ./linuxeasyconfig_1.0.0_all.deb
+```
+
+On Ubuntu 24.04 or Linux Mint 22.3, install the compatibility runtime first:
+
+```bash
+sudo apt install ./linuxeasyconfig-qt-runtime_6.11.1-1_amd64.deb
+sudo apt install ./linuxeasyconfig_1.0.0_all.deb
 ```
 
 Launch LEC from the desktop application menu or run:
@@ -187,8 +176,6 @@ Launch LEC from the desktop application menu or run:
 ```bash
 lec
 ```
-
-The final package name and release instructions will be published with each GitHub release.
 
 ---
 

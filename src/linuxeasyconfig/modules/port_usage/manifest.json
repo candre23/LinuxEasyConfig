@@ -2,7 +2,7 @@
   "format_version": 1,
   "id": "org.linuxeasyconfig.port_usage",
   "name": "Port Usage",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Show listening ports, owning applications, firewall access, Docker mappings, and Reverse Proxy exposure.",
   "module_type": "extended",
   "entry_point": "module:PortUsageModule"

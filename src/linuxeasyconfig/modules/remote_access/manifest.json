@@ -2,7 +2,7 @@
   "format_version": 1,
   "id": "org.linuxeasyconfig.remote_access",
   "name": "Remote Access",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "Install and manage SSH, TigerVNC, and browser-based remote access.",
   "module_type": "extended",
   "entry_point": "module:RemoteAccessModule"

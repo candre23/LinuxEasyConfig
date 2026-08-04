@@ -23,7 +23,7 @@ def request_json(
 
     request_headers = {
         "Accept": "application/json",
-        "User-Agent": "LinuxEasyConfig/0.1",
+        "User-Agent": "LinuxEasyConfig/1.0.0",
     }
 
     if headers:

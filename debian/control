@@ -1,7 +1,7 @@
 Source: linuxeasyconfig
 Section: admin
 Priority: optional
-Maintainer: Linux Easy Config Project <maintainer@example.com>
+Maintainer: Linux Easy Config Project <candre23@users.noreply.github.com>
 Build-Depends:
  debhelper-compat (= 13),
  dh-python,
@@ -10,20 +10,21 @@ Build-Depends:
  python3-setuptools,
 Standards-Version: 4.7.0
 Rules-Requires-Root: no
-Homepage: https://github.com/REPLACE-WITH-YOUR-ACCOUNT/linuxeasyconfig
+Homepage: https://github.com/candre23/LinuxEasyConfig
 
 Package: linuxeasyconfig
 Architecture: all
 Depends:
+ python3 (>= 3.12),
  ${misc:Depends},
  ${python3:Depends},
- python3-pyside6.qtcore,
- python3-pyside6.qtgui,
- python3-pyside6.qtwidgets,
+ python3-pyside6.qtcore | linuxeasyconfig-qt-runtime,
+ python3-pyside6.qtgui | linuxeasyconfig-qt-runtime,
+ python3-pyside6.qtwidgets | linuxeasyconfig-qt-runtime,
  python3-jsonschema,
  python3-packaging,
  python3-platformdirs,
  python3-psutil,
-Description: Graphical configuration framework for Ubuntu
+Description: Graphical configuration framework for Ubuntu and Linux Mint
  Linux Easy Config provides a modular graphical interface for common
- Ubuntu system administration and configuration tasks.
+ Linux system administration and configuration tasks.

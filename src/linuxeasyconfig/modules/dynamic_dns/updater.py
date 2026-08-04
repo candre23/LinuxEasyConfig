@@ -236,7 +236,7 @@ def detect_public_ip(version: int) -> str:
         request = urllib.request.Request(
             url,
             headers={
-                "User-Agent": "LinuxEasyConfig/0.1",
+                "User-Agent": "LinuxEasyConfig/1.0.0",
             },
         )
 

@@ -21,8 +21,11 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QFrame,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QStackedWidget,
     QTabWidget,
     QVBoxLayout,
@@ -72,6 +75,34 @@ class _TaskWorker(QRunnable):
             self.signals.finished.emit()
 
 
+def _scrollable_tab(
+    content: QWidget,
+) -> QScrollArea:
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(
+        QFrame.Shape.NoFrame
+    )
+    scroll.setHorizontalScrollBarPolicy(
+        Qt.ScrollBarPolicy.ScrollBarAsNeeded
+    )
+    scroll.setVerticalScrollBarPolicy(
+        Qt.ScrollBarPolicy.ScrollBarAsNeeded
+    )
+    scroll.setSizePolicy(
+        QSizePolicy.Policy.Expanding,
+        QSizePolicy.Policy.Expanding,
+    )
+
+    content.setSizePolicy(
+        QSizePolicy.Policy.Expanding,
+        QSizePolicy.Policy.Preferred,
+    )
+
+    scroll.setWidget(content)
+    return scroll
+
+
 class MountsView(QWidget):
     """Landing view for mounted and configurable storage."""
 
@@ -87,7 +118,18 @@ class MountsView(QWidget):
         self._thread_pool = QThreadPool(self)
         self._thread_pool.setMaxThreadCount(1)
 
+        self.setMinimumSize(0, 0)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Ignored,
+        )
+
         self._tabs = QTabWidget()
+        self._tabs.setMinimumSize(0, 0)
+        self._tabs.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Ignored,
+        )
 
         mounted_tab, self._mounted_table = (
             self._build_mounted_storage_tab(provider)
@@ -108,11 +150,15 @@ class MountsView(QWidget):
             "Mounted Storage",
         )
         self._tabs.addTab(
-            self._network_share,
+            _scrollable_tab(
+                self._network_share
+            ),
             "Add/Modify Network Share",
         )
         self._tabs.addTab(
-            self._local_folder,
+            _scrollable_tab(
+                self._local_folder
+            ),
             "Add Local Folder Mount",
         )
 
@@ -121,7 +167,9 @@ class MountsView(QWidget):
             self._on_hosted_shares_changed
         )
         self._tabs.addTab(
-            self._hosted_shares,
+            _scrollable_tab(
+                self._hosted_shares
+            ),
             "Share Local Folders",
         )
 

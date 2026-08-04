@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -25,6 +27,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QPlainTextEdit,
+    QScrollArea,
     QSplitter,
     QTabWidget,
     QTableWidget,
@@ -41,6 +44,7 @@ from .module_management import ModuleManagementRepository
 from .overview_repository import OverviewRepository
 from .repository import RecoveryRepository, RecoveryRevision
 from .settings import LECSettings, load_settings, save_settings
+from .uninstall import component_statuses
 
 
 class _RestoreSignals(QObject):
@@ -86,6 +90,34 @@ class _RestoreWorker(QRunnable):
             self.signals.finished.emit()
 
 
+class _ComponentSignals(QObject):
+    succeeded = Signal(str)
+    failed = Signal(str)
+    finished = Signal()
+
+
+class _ComponentWorker(QRunnable):
+    def __init__(self, component_id: str) -> None:
+        super().__init__()
+        self._component_id = component_id
+        self.signals = _ComponentSignals()
+
+    def run(self) -> None:
+        try:
+            result = PrivilegedRunner().run(
+                PrivilegedTask(
+                    task_id="lec_settings.remove_component",
+                    arguments={"component_id": self._component_id},
+                ),
+                timeout=180,
+            )
+            self.signals.succeeded.emit(result)
+        except Exception as exc:
+            self.signals.failed.emit(str(exc))
+        finally:
+            self.signals.finished.emit()
+
+
 class LECSettingsView(QWidget):
     def __init__(
         self,
@@ -99,6 +131,8 @@ class LECSettingsView(QWidget):
         self._recovery_repository = recovery_repository
         self._module_management = ModuleManagementRepository()
         self._settings = load_settings()
+        self._component_worker: _ComponentWorker | None = None
+        self._component_buttons: dict[str, QPushButton] = {}
 
         heading = QLabel("LEC Settings")
         heading.setStyleSheet(
@@ -126,6 +160,10 @@ class LECSettingsView(QWidget):
         self._tabs.addTab(
             self._recovery_tab,
             "Recovery",
+        )
+        self._tabs.addTab(
+            self._build_uninstall_tab(),
+            "Uninstall LEC",
         )
 
         layout = QVBoxLayout(self)
@@ -380,6 +418,171 @@ class LECSettingsView(QWidget):
         layout.addStretch(1)
         layout.addLayout(buttons)
         return page
+
+    def _build_uninstall_tab(self) -> QWidget:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(
+            QFrame.Shape.NoFrame
+        )
+        scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+
+        page = QWidget()
+        scroll.setWidget(page)
+
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(12, 18, 12, 12)
+        layout.setSpacing(14)
+
+        introduction = QLabel(
+            "This page removes background helpers created specifically "
+            "for LEC. Standalone applications such as Docker, Caddy, "
+            "Fail2Ban, Samba, TigerVNC, OpenSSH, and UFW are not removed."
+        )
+        introduction.setWordWrap(True)
+        layout.addWidget(introduction)
+
+        self._components_layout = QGridLayout()
+        self._components_layout.setHorizontalSpacing(12)
+        self._components_layout.setVerticalSpacing(12)
+        self._components_layout.setColumnStretch(0, 1)
+        self._components_layout.setColumnStretch(1, 1)
+        layout.addLayout(self._components_layout)
+        self._populate_component_controls()
+
+        package_group = QGroupBox("Remove the LEC Packages")
+        package_layout = QVBoxLayout(package_group)
+
+        package_note = QLabel(
+            "Ubuntu App Center may not list locally installed .deb packages. "
+            "Use Terminal or Synaptic instead. Removing LEC keeps its system "
+            "configuration. Purging LEC removes package-owned configuration "
+            "and any remaining LEC helper units. The optional Qt runtime is "
+            "a separate package."
+        )
+        package_note.setWordWrap(True)
+
+        commands = QPlainTextEdit()
+        commands.setReadOnly(True)
+        commands.setMaximumHeight(150)
+        commands.setPlainText(
+            "Remove LEC but retain configuration:\n"
+            "sudo apt remove linuxeasyconfig\n\n"
+            "Remove LEC and purge its configuration:\n"
+            "sudo apt purge linuxeasyconfig\n\n"
+            "Remove the optional compatibility runtime:\n"
+            "sudo apt remove linuxeasyconfig-qt-runtime"
+        )
+
+        synaptic = QLabel(
+            "<b>Synaptic:</b> Search for <code>linuxeasyconfig</code>. "
+            "Choose <i>Mark for Removal</i> to retain configuration, or "
+            "<i>Mark for Complete Removal</i> to purge it. Apply the changes. "
+            "Search separately for <code>linuxeasyconfig-qt-runtime</code> "
+            "to remove the compatibility runtime."
+        )
+        synaptic.setWordWrap(True)
+        synaptic.setTextFormat(Qt.TextFormat.RichText)
+
+        package_layout.addWidget(package_note)
+        package_layout.addWidget(commands)
+        package_layout.addWidget(synaptic)
+        layout.addWidget(package_group)
+        layout.addStretch(1)
+        return scroll
+
+    def _populate_component_controls(self) -> None:
+        while self._components_layout.count():
+            item = self._components_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        self._component_buttons.clear()
+
+        for index, component in enumerate(
+            component_statuses()
+        ):
+            group = QGroupBox(component.title)
+            group_layout = QVBoxLayout(group)
+
+            description = QLabel(component.description)
+            description.setWordWrap(True)
+
+            status = QLabel(
+                "<b>Status:</b> Installed"
+                if component.installed
+                else "<b>Status:</b> Not installed"
+            )
+            status.setWordWrap(True)
+            status.setToolTip(component.detail)
+
+            button = QPushButton("Remove " + component.title)
+            button.setEnabled(component.installed)
+            button.clicked.connect(
+                lambda checked=False, component_id=component.component_id:
+                    self._begin_component_removal(component_id)
+            )
+
+            group_layout.addWidget(description)
+            group_layout.addWidget(status)
+            group_layout.addWidget(button)
+            row = index // 2
+            column = index % 2
+            self._components_layout.addWidget(
+                group,
+                row,
+                column,
+            )
+            self._component_buttons[component.component_id] = button
+
+    def _begin_component_removal(self, component_id: str) -> None:
+        component = next(
+            (value for value in component_statuses()
+             if value.component_id == component_id),
+            None,
+        )
+        if component is None or not component.installed:
+            self._populate_component_controls()
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Remove LEC Component",
+            f"Remove {component.title}?\n\n"
+            f"{component.description}\n\n"
+            "Independent applications and retained configuration "
+            "described above will not be removed.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        for button in self._component_buttons.values():
+            button.setEnabled(False)
+
+        worker = _ComponentWorker(component_id)
+        self._component_worker = worker
+        worker.signals.succeeded.connect(self._component_removal_succeeded)
+        worker.signals.failed.connect(self._component_removal_failed)
+        worker.signals.finished.connect(self._component_removal_finished)
+        QThreadPool.globalInstance().start(worker)
+
+    def _component_removal_succeeded(self, message: str) -> None:
+        QMessageBox.information(self, "LEC Component Removed", message)
+
+    def _component_removal_failed(self, message: str) -> None:
+        QMessageBox.critical(self, "Component Removal Failed", message)
+
+    def _component_removal_finished(self) -> None:
+        self._component_worker = None
+        self._populate_component_controls()
 
     def _add_module(self) -> None:
         filename, _ = QFileDialog.getOpenFileName(

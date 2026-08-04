@@ -64,3 +64,17 @@ Thumbs.db
 local/
 private/
 secrets/
+compat-runtime/build/
+linuxeasyconfig-qt-runtime_*.deb
+
+# Debian build artifacts
+.pybuild/
+debian/.debhelper/
+debian/linuxeasyconfig/
+debian/files
+debian/debhelper-build-stamp
+debian/*.substvars
+debian/*.debhelper.log
+*.buildinfo
+*.changes
+*.deb

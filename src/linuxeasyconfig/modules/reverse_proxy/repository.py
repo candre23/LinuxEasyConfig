@@ -200,9 +200,6 @@ class ReverseProxyRepository:
         *,
         maximum_lines: int = 300,
     ) -> list[str]:
-        if not ACCESS_LOG.exists():
-            return []
-
         try:
             lines = ACCESS_LOG.read_text(
                 encoding="utf-8",

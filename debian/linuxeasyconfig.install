@@ -2,3 +2,4 @@ debian/data/applications/linuxeasyconfig.desktop usr/share/applications
 debian/data/icons/hicolor/256x256/apps/linuxeasyconfig.png usr/share/icons/hicolor/256x256/apps
 debian/data/polkit-1/actions/org.linuxeasyconfig.policy usr/share/polkit-1/actions
 debian/data/libexec/linuxeasyconfig/lec-privileged-helper usr/libexec/linuxeasyconfig
+debian/data/metainfo/io.github.candre23.LinuxEasyConfig.metainfo.xml usr/share/metainfo
