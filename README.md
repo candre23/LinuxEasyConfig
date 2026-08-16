@@ -11,7 +11,7 @@ LEC is built for people who want the flexibility of Linux without having to beco
 > - Ubuntu Desktop 24.04 LTS and Linux Mint 22.3 with the optional compatibility runtime
 >    
 > **Interface:** Native PySide6 / Qt desktop application   
-> **Release:** 1.0.0
+> **Latest:** 1.0.2
 
 ---
 
