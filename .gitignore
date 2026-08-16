@@ -31,6 +31,8 @@ debian/linuxeasyconfig.substvars
 
 # LEC development packages and caches
 *.lec
+!module-repository/packages/
+!module-repository/packages/*.lec
 module-cache/
 module-packages/
 .cache/
