@@ -1,9 +1,17 @@
+linuxeasyconfig (1.0.2) unstable; urgency=high
+
+  * Fix Reverse Proxy credential assignment and Caddy access-log visibility.
+
+ -- Linux Easy Config Project <candre23@users.noreply.github.com>  Sat, 15 Aug 2026 17:45:00 -0400
+ 
+ 
 linuxeasyconfig (1.0.1) unstable; urgency=medium
 
   * Fix privileged task discovery for user-installed modules when
     operations are elevated through pkexec.
 
  -- Linux Easy Config Project <candre23@users.noreply.github.com>  Tue, 04 Aug 2026 17:49:56 +0000
+ 
 
 linuxeasyconfig (1.0.0) unstable; urgency=medium
 

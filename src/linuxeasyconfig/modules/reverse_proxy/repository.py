@@ -205,8 +205,10 @@ class ReverseProxyRepository:
                 encoding="utf-8",
                 errors="replace",
             ).splitlines()
-        except OSError:
-            return []
+        except OSError as exc:
+            raise RuntimeError(
+                f"Could not read {ACCESS_LOG}: {exc}"
+            ) from exc
 
         return lines[-maximum_lines:]
 

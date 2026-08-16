@@ -17,6 +17,7 @@ from .manager import (
     create_or_update_rule,
     delete_credential,
     delete_rule,
+    read_recent_activity,
     update_protection_settings,
 )
 
@@ -79,6 +80,21 @@ def _rule_delete(arguments: dict[str, Any]) -> str:
     )
 
 
+def _activity_read(arguments: dict[str, Any]) -> str:
+    try:
+        maximum_lines = int(
+            arguments.get("maximum_lines", 300)
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "maximum_lines must be an integer."
+        ) from exc
+
+    return read_recent_activity(
+        maximum_lines=maximum_lines
+    )
+
+
 def _protection_save(arguments: dict[str, Any]) -> str:
     data = arguments.get("data")
     if not isinstance(data, dict):
@@ -97,5 +113,6 @@ PRIVILEGED_TASKS = {
     "reverse_proxy.credential_delete": _credential_delete,
     "reverse_proxy.rule_save": _rule_save,
     "reverse_proxy.rule_delete": _rule_delete,
+    "reverse_proxy.activity_read": _activity_read,
     "reverse_proxy.protection_save": _protection_save,
 }

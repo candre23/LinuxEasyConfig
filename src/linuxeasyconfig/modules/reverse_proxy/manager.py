@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import os
 import re
 import subprocess
@@ -189,45 +190,72 @@ def create_or_update_rule(
             f"A rule named {rule.name} already exists."
         )
 
+    selected_usernames = list(
+        rule.credential_usernames or []
+    )
+
     if rule.require_login or rule.route_type == "credential":
         if not credentials:
             raise ValueError(
                 "Create at least one credential before enabling login."
             )
+        if not selected_usernames:
+            raise ValueError(
+                "Select at least one credential for this protected rule."
+            )
+
+        known_usernames = {
+            item.username
+            for item in credentials
+        }
+        unknown = [
+            username
+            for username in selected_usernames
+            if username not in known_usernames
+        ]
+        if unknown:
+            raise ValueError(
+                "These selected credentials do not exist: "
+                + ", ".join(unknown)
+            )
 
     if rule.route_type == "credential":
-        if not any(
-            item.username == rule.credential_username
-            for item in credentials
-        ):
+        if len(selected_usernames) != 1:
             raise ValueError(
-                "Select a valid credential for this route."
+                "Authenticated-username routing requires exactly "
+                "one selected credential."
             )
+        rule.credential_username = selected_usernames[0]
 
     candidate_rules = [
         item
         for item in rules
         if item is not existing
     ] + [rule]
+
+    # Legacy "Authenticated username" routing depends on a hostname-level
+    # authentication context. Do not mix that legacy mode with ordinary
+    # host/path rules on the same hostname; ordinary rules use per-rule
+    # authentication below.
     same_host = [
         item
         for item in candidate_rules
         if item.public_host == rule.public_host
         and item.enabled
     ]
-    protected_states = {
-        (
-            item.require_login
-            or item.route_type == "credential"
-        )
+    has_credential_routes = any(
+        item.route_type == "credential"
         for item in same_host
-    }
-    if len(protected_states) > 1:
+    )
+    has_ordinary_routes = any(
+        item.route_type != "credential"
+        for item in same_host
+    )
+    if has_credential_routes and has_ordinary_routes:
         raise ValueError(
-            "All enabled rules using the same public hostname "
-            "must either require a Caddy login or allow access "
-            "without one. Use a separate hostname when only some "
-            "services should require Caddy authentication."
+            "Authenticated-username routes cannot share a public "
+            "hostname with ordinary host or path routes. Use a "
+            "separate hostname for the authenticated-username route."
         )
 
     previous_rules = load_rules()
@@ -356,6 +384,30 @@ def update_protection_settings(
 
 
 
+def read_recent_activity(
+    *,
+    maximum_lines: int = 300,
+) -> str:
+    maximum_lines = max(
+        1,
+        min(int(maximum_lines), 2000),
+    )
+
+    try:
+        lines = ACCESS_LOG.read_text(
+            encoding="utf-8",
+            errors="replace",
+        ).splitlines()
+    except FileNotFoundError:
+        lines = []
+    except OSError as exc:
+        raise RuntimeError(
+            f"Could not read {ACCESS_LOG}: {exc}"
+        ) from exc
+
+    return json.dumps(lines[-maximum_lines:])
+
+
 def _set_fail2ban_configuration_permissions() -> None:
     """
     Fail2Ban configuration tests may be run by the desktop user,
@@ -419,6 +471,11 @@ def render_routes(
         rule for rule in rules if rule.enabled
     ]
 
+    credentials_by_username = {
+        credential.username: credential
+        for credential in credentials
+    }
+
     hosts = sorted(
         {rule.public_host for rule in enabled_rules}
     )
@@ -443,14 +500,27 @@ def render_routes(
             ]
         )
 
-        protected = any(
-            rule.require_login
-            or rule.route_type == "credential"
-            for rule in host_rules
+        legacy_usernames = sorted(
+            {
+                rule.credential_username
+                for rule in host_rules
+                if (
+                    rule.route_type == "credential"
+                    and rule.credential_username
+                )
+            }
         )
-        if protected:
+        if legacy_usernames:
             lines.append("    basic_auth {")
-            for credential in credentials:
+            for username in legacy_usernames:
+                credential = credentials_by_username.get(
+                    username
+                )
+                if credential is None:
+                    raise ValueError(
+                        f"Credential {username} is required by an "
+                        "enabled proxy rule but does not exist."
+                    )
                 lines.append(
                     f"        {credential.username} "
                     f"{credential.password_hash}"
@@ -463,6 +533,35 @@ def render_routes(
                 f"{rule.backend_host}:{rule.backend_port}"
             )
 
+            def append_rule_auth(indent: str) -> None:
+                if not rule.require_login:
+                    return
+
+                usernames = list(
+                    rule.credential_usernames or []
+                )
+                if not usernames:
+                    raise ValueError(
+                        f"Rule {rule.name} requires Caddy login but "
+                        "has no selected credentials."
+                    )
+
+                lines.append(f"{indent}basic_auth {{")
+                for username in usernames:
+                    credential = credentials_by_username.get(
+                        username
+                    )
+                    if credential is None:
+                        raise ValueError(
+                            f"Credential {username} is required by "
+                            f"rule {rule.name} but does not exist."
+                        )
+                    lines.append(
+                        f"{indent}    {credential.username} "
+                        f"{credential.password_hash}"
+                    )
+                lines.append(f"{indent}}}")
+
             if rule.route_type == "path":
                 directive = (
                     "handle_path"
@@ -472,6 +571,7 @@ def render_routes(
                 lines.append(
                     f"    {directive} {rule.path}* {{"
                 )
+                append_rule_auth("        ")
                 lines.append(
                     f"        reverse_proxy {backend}"
                 )
@@ -492,6 +592,7 @@ def render_routes(
                 lines.append("    }")
             else:
                 lines.append("    handle {")
+                append_rule_auth("        ")
                 lines.append(
                     f"        reverse_proxy {backend}"
                 )
@@ -509,7 +610,6 @@ def render_routes(
         )
 
     return "\n".join(lines)
-
 
 def render_fail2ban_jail(
     settings: ProtectionSettings,
@@ -612,9 +712,30 @@ def _rule_from_data(
         data.get("backend_port", 0)
     )
     path = str(data.get("path", "")).strip()
+    raw_usernames = data.get(
+        "credential_usernames",
+        [],
+    )
+    if isinstance(raw_usernames, (list, tuple)):
+        credential_usernames = [
+            str(value).strip()
+            for value in raw_usernames
+            if str(value).strip()
+        ]
+    else:
+        credential_usernames = []
+
     credential_username = str(
         data.get("credential_username", "")
     ).strip()
+    if (
+        credential_username
+        and credential_username not in credential_usernames
+    ):
+        credential_usernames.insert(
+            0,
+            credential_username,
+        )
 
     if not _NAME_PATTERN.fullmatch(name):
         raise ValueError(
@@ -670,6 +791,7 @@ def _rule_from_data(
             data.get("require_login", False)
         ),
         credential_username=credential_username,
+        credential_usernames=credential_usernames,
     )
 
 

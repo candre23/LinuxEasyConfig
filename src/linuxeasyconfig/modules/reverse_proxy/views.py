@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import json
 from typing import Any
 
@@ -346,7 +347,7 @@ class ReverseProxyView(QWidget):
             QAbstractItemView.SelectionMode.SingleSelection
         )
         self._rules_table.itemSelectionChanged.connect(
-            self._update_rule_buttons
+            self._selected_rule_changed
         )
 
         self._rule_name = QLineEdit()
@@ -391,7 +392,14 @@ class ReverseProxyView(QWidget):
         self._require_login = QCheckBox(
             "Require a Caddy login"
         )
-        self._rule_credential = QComboBox()
+        self._require_login.toggled.connect(
+            self._login_requirement_changed
+        )
+        self._rule_credential = QListWidget()
+        self._rule_credential.setSelectionMode(
+            QAbstractItemView.SelectionMode.MultiSelection
+        )
+        self._rule_credential.setMaximumHeight(100)
         self._rule_enabled = QCheckBox(
             "Rule is enabled"
         )
@@ -409,7 +417,7 @@ class ReverseProxyView(QWidget):
         form.addRow("Public URL path:", self._rule_path)
         form.addRow("", self._strip_path)
         form.addRow(
-            "Authenticated user:",
+            "Authenticated users:",
             self._rule_credential,
         )
         form.addRow(
@@ -655,20 +663,61 @@ class ReverseProxyView(QWidget):
         layout = QVBoxLayout(container)
 
         note = QLabel(
-            "This view shows the most recent LEC-managed Caddy "
-            "access-log entries. Entries are structured JSON."
+            "Recent requests handled by LEC-managed Caddy sites. "
+            "Select an entry to see additional details."
         )
         note.setWordWrap(True)
-        self._log_text = QTextEdit()
-        self._log_text.setReadOnly(True)
-        self._log_text.setLineWrapMode(
-            QTextEdit.LineWrapMode.NoWrap
+
+        self._activity_table = QTableWidget(0, 7)
+        self._activity_table.setHorizontalHeaderLabels(
+            [
+                "Time",
+                "Host",
+                "IP Address",
+                "Request",
+                "Result",
+                "User",
+                "Type",
+            ]
         )
+        self._activity_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self._activity_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self._activity_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self._activity_table.setWordWrap(False)
+        self._activity_table.itemSelectionChanged.connect(
+            self._activity_selection_changed
+        )
+        activity_header = self._activity_table.horizontalHeader()
+        activity_header.setSectionResizeMode(
+            QHeaderView.ResizeMode.Interactive
+        )
+        activity_header.setStretchLastSection(True)
+
+        for index, width in enumerate(
+            [150, 220, 140, 300, 170, 110, 150]
+        ):
+            self._activity_table.setColumnWidth(index, width)
+
+        self._activity_details = QTextEdit()
+        self._activity_details.setReadOnly(True)
+        self._activity_details.setMaximumHeight(180)
+        self._activity_details.setPlaceholderText(
+            "Select a request to see details."
+        )
+
         refresh = QPushButton("Refresh Activity")
         refresh.clicked.connect(self._refresh_logs)
 
         layout.addWidget(note)
-        layout.addWidget(self._log_text, 1)
+        layout.addWidget(self._activity_table, 1)
+        layout.addWidget(QLabel("Selected Request Details"))
+        layout.addWidget(self._activity_details)
         layout.addWidget(refresh)
         return container
 
@@ -755,7 +804,6 @@ class ReverseProxyView(QWidget):
         self._refresh_rules()
         self._refresh_protection()
         self._refresh_bans()
-        self._refresh_logs()
 
     def _refresh_certificates(self) -> None:
         certificates = self._repository.certificates()
@@ -875,7 +923,18 @@ class ReverseProxyView(QWidget):
                 rule.public_host,
                 route,
                 backend,
-                "Required"
+                (
+                    "Required"
+                    + (
+                        " ("
+                        + ", ".join(
+                            rule.credential_usernames or []
+                        )
+                        + ")"
+                        if rule.credential_usernames
+                        else ""
+                    )
+                )
                 if (
                     rule.require_login
                     or rule.route_type == "credential"
@@ -935,11 +994,181 @@ class ReverseProxyView(QWidget):
         self._update_unban_button()
 
     def _refresh_logs(self) -> None:
-        lines = self._repository.recent_activity()
-        self._log_text.setPlainText(
-            "\n".join(lines)
-            if lines
-            else "No LEC-managed Caddy activity has been logged yet."
+        try:
+            payload = PrivilegedRunner().run(
+                PrivilegedTask(
+                    task_id="reverse_proxy.activity_read",
+                    arguments={"maximum_lines": 300},
+                )
+            )
+            value = json.loads(payload)
+            if not isinstance(value, list):
+                raise ValueError(
+                    "The privileged log reader returned invalid data."
+                )
+        except Exception as exc:
+            self._activity_table.setRowCount(0)
+            self._activity_details.setPlainText(
+                "Could not read the LEC-managed Caddy activity log.\n\n"
+                + str(exc)
+            )
+            return
+
+        entries: list[dict[str, Any]] = []
+        for raw in value:
+            if not isinstance(raw, str):
+                continue
+            try:
+                entry = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(entry, dict):
+                entries.append(entry)
+
+        entries.reverse()
+
+        self._activity_table.setRowCount(0)
+        self._activity_details.clear()
+
+        for entry in entries:
+            request = entry.get("request")
+            if not isinstance(request, dict):
+                request = {}
+
+            timestamp = _format_activity_timestamp(
+                entry.get("ts")
+            )
+            host = str(
+                request.get("host", "")
+            ).split(":", 1)[0]
+            address = str(
+                request.get(
+                    "client_ip",
+                    request.get("remote_ip", ""),
+                )
+            )
+            method = str(request.get("method", ""))
+            uri = str(request.get("uri", ""))
+            request_text = (
+                f"{method} {uri}".strip()
+                or "Unknown request"
+            )
+
+            try:
+                status = int(entry.get("status", 0))
+            except (TypeError, ValueError):
+                status = 0
+
+            headers = request.get("headers")
+            if not isinstance(headers, dict):
+                headers = {}
+
+            user = str(entry.get("user_id", "")).strip()
+            result = _activity_result(
+                status=status,
+                authenticated_user=user,
+                headers=headers,
+            )
+            client_type = _activity_client_type(
+                headers=headers,
+                authenticated_user=user,
+                uri=uri,
+            )
+
+            row = self._activity_table.rowCount()
+            self._activity_table.insertRow(row)
+
+            values = [
+                timestamp,
+                host,
+                address,
+                request_text,
+                result,
+                user or "—",
+                client_type,
+            ]
+
+            raw_entry = json.dumps(
+                entry,
+                indent=2,
+                sort_keys=True,
+            )
+
+            for column, cell_value in enumerate(values):
+                item = QTableWidgetItem(cell_value)
+                item.setData(
+                    Qt.ItemDataRole.UserRole,
+                    raw_entry,
+                )
+                self._activity_table.setItem(
+                    row,
+                    column,
+                    item,
+                )
+
+        if not entries:
+            self._activity_details.setPlainText(
+                "No LEC-managed Caddy activity has been logged yet."
+            )
+
+    def _activity_selection_changed(self) -> None:
+        row = self._activity_table.currentRow()
+        if row < 0:
+            self._activity_details.clear()
+            return
+
+        item = self._activity_table.item(row, 0)
+        if item is None:
+            self._activity_details.clear()
+            return
+
+        raw_entry = item.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(raw_entry, str):
+            self._activity_details.clear()
+            return
+
+        try:
+            entry = json.loads(raw_entry)
+        except json.JSONDecodeError:
+            self._activity_details.setPlainText(raw_entry)
+            return
+
+        request = entry.get("request")
+        if not isinstance(request, dict):
+            request = {}
+
+        headers = request.get("headers")
+        if not isinstance(headers, dict):
+            headers = {}
+
+        user_agent = _first_header(
+            headers,
+            "User-Agent",
+        )
+        protocol = str(request.get("proto", ""))
+        tls = request.get("tls")
+        secure = isinstance(tls, dict)
+        user = str(entry.get("user_id", "")).strip() or "None"
+
+        try:
+            duration_ms = float(
+                entry.get("duration", 0.0)
+            ) * 1000.0
+        except (TypeError, ValueError):
+            duration_ms = 0.0
+
+        details = [
+            f"Client: {_friendly_user_agent(user_agent)}",
+            f"Protocol: {protocol or 'Unknown'}",
+            f"TLS: {'Yes' if secure else 'No'}",
+            f"Authenticated user: {user}",
+            f"Duration: {duration_ms:.2f} ms",
+            "",
+            "Raw entry:",
+            raw_entry,
+        ]
+        self._activity_details.setPlainText(
+            "\n".join(details)
         )
 
     def _route_type_changed(self) -> None:
@@ -948,12 +1177,49 @@ class ReverseProxyView(QWidget):
         is_credential = route_type == "credential"
         self._rule_path.setEnabled(is_path)
         self._strip_path.setEnabled(is_path)
-        self._rule_credential.setEnabled(is_credential)
         self._require_login.setEnabled(
             not is_credential
         )
         if is_credential:
             self._require_login.setChecked(True)
+            self._rule_credential.setSelectionMode(
+                QAbstractItemView.SelectionMode.SingleSelection
+            )
+        else:
+            self._rule_credential.setSelectionMode(
+                QAbstractItemView.SelectionMode.MultiSelection
+            )
+        self._login_requirement_changed(
+            self._require_login.isChecked()
+        )
+
+    def _login_requirement_changed(
+        self,
+        checked: bool,
+    ) -> None:
+        self._rule_credential.setEnabled(bool(checked))
+
+    def _selected_credential_usernames(
+        self,
+    ) -> list[str]:
+        return [
+            item.text()
+            for item in self._rule_credential.selectedItems()
+        ]
+
+    def _set_selected_credential_usernames(
+        self,
+        usernames: list[str],
+    ) -> None:
+        selected = set(usernames)
+        for index in range(self._rule_credential.count()):
+            item = self._rule_credential.item(index)
+            item.setSelected(item.text() in selected)
+
+    def _selected_rule_changed(self) -> None:
+        self._update_rule_buttons()
+        if self._rules_table.currentRow() >= 0:
+            self._load_selected_rule()
 
     def _permanent_ban_changed(
         self,
@@ -1037,7 +1303,14 @@ class ReverseProxyView(QWidget):
                     "route_type": self._route_type.currentData(),
                     "path": self._rule_path.text(),
                     "strip_path": self._strip_path.isChecked(),
-                    "credential_username": self._rule_credential.currentText(),
+                    "credential_username": (
+                        self._selected_credential_usernames()[0]
+                        if self._selected_credential_usernames()
+                        else ""
+                    ),
+                    "credential_usernames": (
+                        self._selected_credential_usernames()
+                    ),
                     "backend_host": self._backend_host.text(),
                     "backend_port": self._backend_port.value(),
                     "backend_https": self._backend_https.isChecked(),
@@ -1138,11 +1411,12 @@ class ReverseProxyView(QWidget):
         self._backend_https.setChecked(rule.backend_https)
         self._require_login.setChecked(rule.require_login)
         self._rule_enabled.setChecked(rule.enabled)
-        index = self._rule_credential.findText(
-            rule.credential_username
+        self._set_selected_credential_usernames(
+            list(rule.credential_usernames or [])
         )
-        if index >= 0:
-            self._rule_credential.setCurrentIndex(index)
+        self._login_requirement_changed(
+            self._require_login.isChecked()
+        )
         self._rule_form_group.setTitle(
             "Modify Proxy Rule"
         )
@@ -1160,6 +1434,7 @@ class ReverseProxyView(QWidget):
         self._backend_port.setValue(8080)
         self._backend_https.setChecked(False)
         self._require_login.setChecked(False)
+        self._rule_credential.clearSelection()
         self._rule_enabled.setChecked(True)
         self._rule_form_group.setTitle("Add Proxy Rule")
         self._save_rule.setText("Add Rule")
@@ -1240,6 +1515,183 @@ class ReverseProxyView(QWidget):
         self._busy = busy
         self._tabs.setEnabled(not busy)
 
+
+
+def _format_activity_timestamp(value: object) -> str:
+    try:
+        timestamp = float(value)
+    except (TypeError, ValueError):
+        return ""
+
+    try:
+        moment = dt.datetime.fromtimestamp(
+            timestamp,
+            tz=dt.timezone.utc,
+        ).astimezone()
+    except (OverflowError, OSError, ValueError):
+        return ""
+
+    return moment.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _first_header(
+    headers: dict[str, object],
+    name: str,
+) -> str:
+    for key, value in headers.items():
+        if key.lower() != name.lower():
+            continue
+        if isinstance(value, list) and value:
+            return str(value[0])
+        if value is not None:
+            return str(value)
+    return ""
+
+
+def _activity_result(
+    *,
+    status: int,
+    authenticated_user: str,
+    headers: dict[str, object],
+) -> str:
+    attempted_auth = bool(
+        _first_header(headers, "Authorization")
+    )
+
+    if status == 401:
+        if attempted_auth:
+            return "401 Login failed"
+        return "401 Login required"
+
+    labels = {
+        200: "OK",
+        201: "Created",
+        204: "No content",
+        301: "Redirect",
+        302: "Redirect",
+        303: "Redirect",
+        304: "Not modified",
+        400: "Bad request",
+        403: "Forbidden",
+        404: "Not found",
+        405: "Method not allowed",
+        429: "Too many requests",
+        500: "Server error",
+        502: "Bad gateway",
+        503: "Unavailable",
+        504: "Gateway timeout",
+    }
+
+    label = labels.get(status, "")
+    if authenticated_user and 200 <= status < 400:
+        if label:
+            return f"{status} {label}"
+        return f"{status} Login successful"
+
+    if label:
+        return f"{status} {label}"
+
+    return str(status) if status else "Unknown"
+
+
+def _activity_client_type(
+    *,
+    headers: dict[str, object],
+    authenticated_user: str,
+    uri: str,
+) -> str:
+    if authenticated_user:
+        return "Authenticated"
+
+    user_agent = _first_header(
+        headers,
+        "User-Agent",
+    ).lower()
+    sender = _first_header(
+        headers,
+        "From",
+    ).lower()
+
+    if any(
+        marker in user_agent or marker in sender
+        for marker in (
+            "bot",
+            "crawler",
+            "spider",
+            "searchbot",
+        )
+    ):
+        return "Search crawler"
+
+    suspicious_paths = (
+        "/wp-login.php",
+        "/wp-json/",
+        "/.env",
+        "/.git/",
+        "/phpmyadmin",
+        "/administrator",
+    )
+    if any(uri.lower().startswith(path) for path in suspicious_paths):
+        return "Likely scanner"
+
+    if any(
+        marker in user_agent
+        for marker in (
+            "mozilla/",
+            "chrome/",
+            "safari/",
+            "firefox/",
+            "edg/",
+        )
+    ):
+        return "Browser"
+
+    if user_agent.startswith("curl/"):
+        return "Command line"
+
+    return "Other"
+
+
+def _friendly_user_agent(user_agent: str) -> str:
+    if not user_agent:
+        return "Unknown"
+
+    lower = user_agent.lower()
+
+    browser = ""
+    if "edg/" in lower:
+        browser = "Edge"
+    elif "firefox/" in lower:
+        browser = "Firefox"
+    elif "chrome/" in lower or "chromium/" in lower:
+        browser = "Chrome"
+    elif "safari/" in lower:
+        browser = "Safari"
+    elif lower.startswith("curl/"):
+        browser = "curl"
+    elif "bot" in lower:
+        browser = "Bot"
+
+    platform = ""
+    if "android" in lower:
+        platform = "Android"
+    elif "iphone" in lower or "ipad" in lower:
+        platform = "iOS"
+    elif "windows" in lower:
+        platform = "Windows"
+    elif "macintosh" in lower or "mac os x" in lower:
+        platform = "macOS"
+    elif "linux" in lower:
+        platform = "Linux"
+
+    if browser and platform:
+        return f"{browser} / {platform}"
+    if browser:
+        return browser
+    if platform:
+        return platform
+
+    return user_agent[:120]
 
 def _show_scrollable_error(
     parent: QWidget,

@@ -31,6 +31,30 @@ class ProxyRule:
     strip_path: bool = True
     require_login: bool = False
     credential_username: str = ""
+    credential_usernames: list[str] | None = None
+
+    def __post_init__(self) -> None:
+        usernames = [
+            str(value).strip()
+            for value in (self.credential_usernames or [])
+            if str(value).strip()
+        ]
+
+        if self.credential_username.strip():
+            legacy = self.credential_username.strip()
+            if legacy not in usernames:
+                usernames.insert(0, legacy)
+
+        self.credential_usernames = list(dict.fromkeys(usernames))
+
+        if self.route_type == "credential":
+            self.credential_username = (
+                self.credential_usernames[0]
+                if self.credential_usernames
+                else ""
+            )
+        elif not self.credential_username and len(self.credential_usernames) == 1:
+            self.credential_username = self.credential_usernames[0]
 
 
 @dataclass
