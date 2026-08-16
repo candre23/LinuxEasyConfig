@@ -106,9 +106,26 @@ def create_or_update_credential(
         old_name = existing.username
         existing.username = username
         existing.password_hash = password_hash
+
         for rule in previous_rules:
             if rule.credential_username == old_name:
                 rule.credential_username = username
+
+            updated_usernames = [
+                username if value == old_name else value
+                for value in (rule.credential_usernames or [])
+            ]
+            rule.credential_usernames = list(
+                dict.fromkeys(updated_usernames)
+            )
+
+            if rule.route_type == "credential":
+                rule.credential_username = (
+                    rule.credential_usernames[0]
+                    if rule.credential_usernames
+                    else ""
+                )
+
         action = "updated"
 
     _apply_proxy_configuration(

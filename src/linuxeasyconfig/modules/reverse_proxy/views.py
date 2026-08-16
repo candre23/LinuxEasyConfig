@@ -880,8 +880,12 @@ class ReverseProxyView(QWidget):
             used = [
                 rule.name
                 for rule in rules
-                if rule.credential_username
-                == credential.username
+                if (
+                    credential.username
+                    in (rule.credential_usernames or [])
+                    or rule.credential_username
+                    == credential.username
+                )
             ]
             row = self._credentials_table.rowCount()
             self._credentials_table.insertRow(row)
