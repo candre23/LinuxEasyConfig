@@ -2,7 +2,7 @@
   "format_version": 1,
   "id": "org.linuxeasyconfig.reverse_proxy",
   "name": "Reverse Proxy",
-  "version": "1.0.2",
+  "version": "1.0.0",
   "description": "Install and manage Caddy with Fail2Ban protection.",
   "module_type": "extended",
   "entry_point": "module:ReverseProxyModule"

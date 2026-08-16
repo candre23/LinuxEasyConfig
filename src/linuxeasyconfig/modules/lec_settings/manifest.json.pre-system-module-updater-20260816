@@ -2,7 +2,7 @@
   "format_version": 1,
   "id": "org.linuxeasyconfig.lec_settings",
   "name": "LEC Settings",
-  "version": "1.0.2",
+  "version": "1.0.0",
   "description": "View LEC information, configure application preferences, and recover configuration revisions.",
   "module_type": "extended",
   "entry_point": "module:LECSettingsModule"

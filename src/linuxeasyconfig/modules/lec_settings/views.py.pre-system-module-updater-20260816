@@ -40,10 +40,7 @@ from linuxeasyconfig.core.privileged.runner import PrivilegedRunner
 from linuxeasyconfig.core.privileged.task import PrivilegedTask
 from linuxeasyconfig.core.theme import apply_appearance
 
-from .module_management import (
-    ModuleManagementRepository,
-    SystemModuleUpdate,
-)
+from .module_management import ModuleManagementRepository
 from .overview_repository import OverviewRepository
 from .repository import RecoveryRepository, RecoveryRevision
 from .settings import LECSettings, load_settings, save_settings
@@ -121,61 +118,6 @@ class _ComponentWorker(QRunnable):
             self.signals.finished.emit()
 
 
-class _SystemModuleCheckSignals(QObject):
-    succeeded = Signal(object)
-    failed = Signal(str)
-    finished = Signal()
-
-
-class _SystemModuleCheckWorker(QRunnable):
-    def __init__(self, repository: ModuleManagementRepository) -> None:
-        super().__init__()
-        self._repository = repository
-        self.signals = _SystemModuleCheckSignals()
-
-    def run(self) -> None:
-        try:
-            self.signals.succeeded.emit(self._repository.check_system_updates())
-        except Exception as exc:
-            self.signals.failed.emit(str(exc))
-        finally:
-            self.signals.finished.emit()
-
-
-class _SystemModuleInstallSignals(QObject):
-    succeeded = Signal(str)
-    failed = Signal(str)
-    finished = Signal()
-
-
-class _SystemModuleInstallWorker(QRunnable):
-    def __init__(
-        self,
-        repository: ModuleManagementRepository,
-        updates: list[SystemModuleUpdate],
-    ) -> None:
-        super().__init__()
-        self._repository = repository
-        self._updates = updates
-        self.signals = _SystemModuleInstallSignals()
-
-    def run(self) -> None:
-        installed: list[str] = []
-        try:
-            for update in self._updates:
-                self._repository.install_system_update(update)
-                installed.append(f"{update.name} {update.available_version}")
-            self.signals.succeeded.emit(
-                "Installed system module updates:\n\n"
-                + "\n".join(installed)
-                + "\n\nRestart Linux Easy Config to load the updated modules."
-            )
-        except Exception as exc:
-            self.signals.failed.emit(str(exc))
-        finally:
-            self.signals.finished.emit()
-
-
 class LECSettingsView(QWidget):
     def __init__(
         self,
@@ -191,8 +133,6 @@ class LECSettingsView(QWidget):
         self._settings = load_settings()
         self._component_worker: _ComponentWorker | None = None
         self._component_buttons: dict[str, QPushButton] = {}
-        self._system_module_worker: QRunnable | None = None
-        self._system_module_updates: list[SystemModuleUpdate] = []
 
         heading = QLabel("LEC Settings")
         heading.setStyleSheet(
@@ -471,226 +411,13 @@ class LECSettingsView(QWidget):
         module_layout.addWidget(module_note)
         module_layout.addLayout(module_buttons)
 
-        system_updates_group = QGroupBox("Official System Module Updates")
-        system_updates_layout = QVBoxLayout(system_updates_group)
-
-        system_updates_note = QLabel(
-            "Check the official Linux Easy Config repository for newer "
-            "versions of built-in system modules. Official updates are "
-            "verified before installation and override the older copy "
-            "bundled with LEC after the application restarts."
-        )
-        system_updates_note.setWordWrap(True)
-
-        self._system_update_status = QLabel(
-            "System module updates have not been checked yet."
-        )
-        self._system_update_status.setWordWrap(True)
-
-        self._system_updates_table = QTableWidget(0, 5)
-        self._system_updates_table.setHorizontalHeaderLabels(
-            ["Module", "Installed", "Available", "Status", "Module ID"]
-        )
-        self._system_updates_table.setEditTriggers(
-            QAbstractItemView.EditTrigger.NoEditTriggers
-        )
-        self._system_updates_table.setSelectionBehavior(
-            QAbstractItemView.SelectionBehavior.SelectRows
-        )
-        self._system_updates_table.setSelectionMode(
-            QAbstractItemView.SelectionMode.ExtendedSelection
-        )
-        self._system_updates_table.verticalHeader().setVisible(False)
-        self._system_updates_table.itemSelectionChanged.connect(
-            self._update_system_module_buttons
-        )
-
-        updates_header = self._system_updates_table.horizontalHeader()
-        for column in (0, 1, 2, 3):
-            updates_header.setSectionResizeMode(
-                column, QHeaderView.ResizeMode.ResizeToContents
-            )
-        updates_header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
-
-        self._check_system_updates_button = QPushButton(
-            "Check for System Module Updates"
-        )
-        self._check_system_updates_button.clicked.connect(
-            self._check_system_module_updates
-        )
-        self._update_selected_modules_button = QPushButton("Update Selected")
-        self._update_selected_modules_button.clicked.connect(
-            self._update_selected_system_modules
-        )
-        self._update_selected_modules_button.setEnabled(False)
-        self._update_all_modules_button = QPushButton("Update All")
-        self._update_all_modules_button.clicked.connect(
-            self._update_all_system_modules
-        )
-        self._update_all_modules_button.setEnabled(False)
-
-        system_update_buttons = QHBoxLayout()
-        system_update_buttons.addWidget(self._check_system_updates_button)
-        system_update_buttons.addStretch(1)
-        system_update_buttons.addWidget(self._update_selected_modules_button)
-        system_update_buttons.addWidget(self._update_all_modules_button)
-
-        system_updates_layout.addWidget(system_updates_note)
-        system_updates_layout.addWidget(self._system_update_status)
-        system_updates_layout.addWidget(self._system_updates_table)
-        system_updates_layout.addLayout(system_update_buttons)
-
         layout.addWidget(appearance_group)
         layout.addWidget(behavior_group)
         layout.addWidget(module_group)
-        layout.addWidget(system_updates_group)
         layout.addWidget(note)
         layout.addStretch(1)
         layout.addLayout(buttons)
         return page
-
-    def _check_system_module_updates(self) -> None:
-        if self._system_module_worker is not None:
-            return
-        self._system_update_status.setText(
-            "Checking the official module repository..."
-        )
-        self._set_system_update_controls_enabled(False)
-        worker = _SystemModuleCheckWorker(self._module_management)
-        self._system_module_worker = worker
-        worker.signals.succeeded.connect(self._system_module_check_succeeded)
-        worker.signals.failed.connect(self._system_module_operation_failed)
-        worker.signals.finished.connect(self._system_module_operation_finished)
-        QThreadPool.globalInstance().start(worker)
-
-    def _system_module_check_succeeded(self, updates: object) -> None:
-        if not isinstance(updates, list):
-            self._system_module_operation_failed(
-                "The official module repository returned invalid data."
-            )
-            return
-        self._system_module_updates = [
-            item for item in updates if isinstance(item, SystemModuleUpdate)
-        ]
-        self._populate_system_module_updates()
-        available = [item for item in self._system_module_updates if item.update_available]
-        if available:
-            self._system_update_status.setText(
-                f"{len(available)} system module update"
-                f"{'s are' if len(available) != 1 else ' is'} available."
-            )
-        else:
-            self._system_update_status.setText(
-                "All official system modules are up to date."
-            )
-
-    def _populate_system_module_updates(self) -> None:
-        self._system_updates_table.setRowCount(0)
-        for update in self._system_module_updates:
-            row = self._system_updates_table.rowCount()
-            self._system_updates_table.insertRow(row)
-            values = (
-                update.name,
-                update.installed_version,
-                update.available_version,
-                update.status,
-                update.module_id,
-            )
-            for column, value in enumerate(values):
-                item = QTableWidgetItem(value)
-                item.setData(Qt.ItemDataRole.UserRole, update.module_id)
-                self._system_updates_table.setItem(row, column, item)
-        self._update_system_module_buttons()
-
-    def _selected_system_module_updates(self) -> list[SystemModuleUpdate]:
-        selection_model = self._system_updates_table.selectionModel()
-        if selection_model is None:
-            return []
-        selected_rows = sorted({index.row() for index in selection_model.selectedRows()})
-        selected_ids: set[str] = set()
-        for row in selected_rows:
-            item = self._system_updates_table.item(row, 0)
-            if item is None:
-                continue
-            module_id = item.data(Qt.ItemDataRole.UserRole)
-            if isinstance(module_id, str):
-                selected_ids.add(module_id)
-        return [
-            update
-            for update in self._system_module_updates
-            if update.module_id in selected_ids and update.update_available
-        ]
-
-    def _update_selected_system_modules(self) -> None:
-        updates = self._selected_system_module_updates()
-        if updates:
-            self._begin_system_module_install(updates)
-
-    def _update_all_system_modules(self) -> None:
-        updates = [
-            update for update in self._system_module_updates if update.update_available
-        ]
-        if updates:
-            self._begin_system_module_install(updates)
-
-    def _begin_system_module_install(
-        self, updates: list[SystemModuleUpdate]
-    ) -> None:
-        if self._system_module_worker is not None:
-            return
-        names = "\n".join(
-            f"  {item.name}: {item.installed_version} -> {item.available_version}"
-            for item in updates
-        )
-        response = QMessageBox.question(
-            self,
-            "Install System Module Updates",
-            "Install these official system module updates?\n\n"
-            + names
-            + "\n\nThe updated modules will become active after Linux Easy Config restarts.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
-        )
-        if response != QMessageBox.StandardButton.Yes:
-            return
-        self._system_update_status.setText(
-            "Downloading and installing system module updates..."
-        )
-        self._set_system_update_controls_enabled(False)
-        worker = _SystemModuleInstallWorker(self._module_management, updates)
-        self._system_module_worker = worker
-        worker.signals.succeeded.connect(self._system_module_install_succeeded)
-        worker.signals.failed.connect(self._system_module_operation_failed)
-        worker.signals.finished.connect(self._system_module_operation_finished)
-        QThreadPool.globalInstance().start(worker)
-
-    def _system_module_install_succeeded(self, message: str) -> None:
-        self._system_update_status.setText(
-            "System module updates were installed. Restart LEC to load the new versions."
-        )
-        QMessageBox.information(self, "System Modules Updated", message)
-
-    def _system_module_operation_failed(self, message: str) -> None:
-        self._system_update_status.setText("The system module operation failed.")
-        QMessageBox.critical(self, "System Module Update Failed", message)
-
-    def _system_module_operation_finished(self) -> None:
-        self._system_module_worker = None
-        self._set_system_update_controls_enabled(True)
-        self._update_system_module_buttons()
-
-    def _set_system_update_controls_enabled(self, enabled: bool) -> None:
-        self._check_system_updates_button.setEnabled(enabled)
-        if not enabled:
-            self._update_selected_modules_button.setEnabled(False)
-            self._update_all_modules_button.setEnabled(False)
-
-    def _update_system_module_buttons(self) -> None:
-        idle = self._system_module_worker is None
-        selected = bool(self._selected_system_module_updates())
-        any_updates = any(item.update_available for item in self._system_module_updates)
-        self._update_selected_modules_button.setEnabled(idle and selected)
-        self._update_all_modules_button.setEnabled(idle and any_updates)
 
     def _build_uninstall_tab(self) -> QWidget:
         scroll = QScrollArea()

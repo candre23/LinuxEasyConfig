@@ -1,0 +1,21 @@
+{
+  "modules": [
+    {
+      "id": "org.linuxeasyconfig.lec_settings",
+      "min_lec_version": "1.0.2",
+      "name": "LEC Settings",
+      "sha256": "266d3679c69b55ead21a36a11df6f210e9e7889c246b0e5941b55358fd1731b2",
+      "url": "https://raw.githubusercontent.com/candre23/LinuxEasyConfig/main/module-repository/packages/lec_settings-1.0.2.lec",
+      "version": "1.0.2"
+    },
+    {
+      "id": "org.linuxeasyconfig.reverse_proxy",
+      "min_lec_version": "1.0.2",
+      "name": "Reverse Proxy",
+      "sha256": "4741bf57e5bd24e1c6f5beef0983346ce3fb0459783bd73fa9d4d3955c3ec94f",
+      "url": "https://raw.githubusercontent.com/candre23/LinuxEasyConfig/main/module-repository/packages/reverse_proxy-1.0.2.lec",
+      "version": "1.0.2"
+    }
+  ],
+  "schema_version": 1
+}
