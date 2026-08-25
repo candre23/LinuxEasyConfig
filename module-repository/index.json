@@ -9,6 +9,14 @@
       "version": "1.0.2"
     },
     {
+      "id": "org.linuxeasyconfig.mounts",
+      "min_lec_version": "1.0.2",
+      "name": "Mounts & Shares",
+      "sha256": "71e59b296515076b83157f7abbcdddb5844cb1f40c7a3ddad00037565ed7c536",
+      "url": "https://raw.githubusercontent.com/candre23/LinuxEasyConfig/main/module-repository/packages/mounts_and_shares-1.0.1.lec",
+      "version": "1.0.1"
+    },
+    {
       "id": "org.linuxeasyconfig.reverse_proxy",
       "min_lec_version": "1.0.2",
       "name": "Reverse Proxy",
