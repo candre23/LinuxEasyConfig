@@ -68,6 +68,10 @@ Built-in modules remain unpacked in the source repository so their components ar
 
 Optional application modules can be developed and distributed separately without changing LEC Core.
 
+LEC Application Module repo:  https://github.com/candre23/LEC_Modules
+
+LEC Docker Preset repo:  https://github.com/candre23/LEC_Docker_Presets
+
 ---
 
 ## Integrated System Setup
