@@ -12,17 +12,17 @@
       "id": "org.linuxeasyconfig.mounts",
       "min_lec_version": "1.0.2",
       "name": "Mounts & Shares",
-      "sha256": "71e59b296515076b83157f7abbcdddb5844cb1f40c7a3ddad00037565ed7c536",
-      "url": "https://raw.githubusercontent.com/candre23/LinuxEasyConfig/main/module-repository/packages/mounts_and_shares-1.0.1.lec",
-      "version": "1.0.1"
+      "sha256": "3cb5791f062a3f379f359357173f9720a08ac7cc87804e78a58f3e25919d848a",
+      "url": "https://raw.githubusercontent.com/candre23/LinuxEasyConfig/main/module-repository/packages/mounts_and_shares-1.0.2.lec",
+      "version": "1.0.2"
     },
     {
       "id": "org.linuxeasyconfig.task_scheduler",
       "min_lec_version": "1.0.2",
       "name": "Task Scheduler",
-      "sha256": "f1bbca72922db3770cfe997e1b5a4774aa12671c74b6d8e141525567984c49c3",
-      "url": "https://raw.githubusercontent.com/candre23/LinuxEasyConfig/main/module-repository/packages/task_scheduler-1.0.3.lec",
-      "version": "1.0.3"
+      "sha256": "4926920c939f73477fc8e38b1a7a254cb824e3d5968f83d7cad9ee1527639847",
+      "url": "https://raw.githubusercontent.com/candre23/LinuxEasyConfig/main/module-repository/packages/task_scheduler-1.0.4.lec",
+      "version": "1.0.4"
     },    
     {
       "id": "org.linuxeasyconfig.reverse_proxy",
