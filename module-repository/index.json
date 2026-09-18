@@ -17,6 +17,14 @@
       "version": "1.0.1"
     },
     {
+      "id": "org.linuxeasyconfig.task_scheduler",
+      "min_lec_version": "1.0.2",
+      "name": "Task Scheduler",
+      "sha256": "e433f89c834bba685b0a152175bd1e8deac57c9059e85ce519437d0bc3d2e8e7",
+      "url": "https://raw.githubusercontent.com/candre23/LinuxEasyConfig/main/module-repository/packages/task_scheduler-1.0.1.lec",
+      "version": "1.0.1"
+    },    
+    {
       "id": "org.linuxeasyconfig.reverse_proxy",
       "min_lec_version": "1.0.2",
       "name": "Reverse Proxy",
